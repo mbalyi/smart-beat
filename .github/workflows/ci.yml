@@ -88,6 +88,7 @@ jobs:
           - { id: stems, title: stem separation, workers: 2 }
           - { id: practice-together, title: Practice together, workers: 2 }
           - { id: audio-lanes, title: audio lanes, workers: 2 }
+          - { id: midi-lanes, title: MIDI lanes, workers: 2 }
           - { id: edit, title: edit tests, workers: 2 }
           - { id: tours, title: guided tours, workers: 2 }
           - { id: ai-dialogs, title: AI installer and model dialogs, workers: 2 }

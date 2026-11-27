@@ -66,6 +66,7 @@ fn clip(id: &str, start_ms: f64, offset_ms: f64, length_ms: f64) -> AudioClip {
         envelope: vec![],
         stretch: vec![],
         group_id: None,
+        midi: None,
     }
 }
 
@@ -90,6 +91,8 @@ fn lane(id: &str, clips: Vec<AudioClip>) -> AudioLane {
         height: None,
         clips,
         shown_in_score: false,
+        kind: None,
+        instrument: None,
     }
 }
 
@@ -125,6 +128,8 @@ fn render(audio: &AudioLanes, source: DecodedAudio, seconds: f64) -> Vec<f32> {
         max_block: BLOCK,
         build_chain: &build,
         seconds_at: &seconds_at,
+        sound: &|_| None,
+        live_queue: &|_| super::midi::live_queue(),
     };
     let mut mixer = LaneMixer::new(prepare(&inputs), RATE);
     let total = (seconds * RATE as f64) as usize;
@@ -354,6 +359,8 @@ fn an_edit_keeps_the_running_voice_of_an_unchanged_clip() {
             max_block: BLOCK,
             build_chain: &build,
             seconds_at: &seconds_at,
+            sound: &|_| None,
+            live_queue: &|_| super::midi::live_queue(),
         })
     };
     let mut mixer = LaneMixer::new(prepare_with(&audio), RATE);
@@ -377,4 +384,18 @@ fn an_edit_keeps_the_running_voice_of_an_unchanged_clip() {
     drop(mixer.replace(prepare_with(&quieter)));
     assert!(!mixer.lanes[0].voices[0].is_active());
     assert!(before.iter().any(|s| s.abs() > 0.1));
+}
+
+#[test]
+fn the_timeline_clock_places_a_live_note_where_it_was_heard() {
+    use std::time::{Duration, Instant};
+    let clock = super::TimelineClock::default();
+    assert_eq!(clock.timeline_ms(Instant::now(), 0.0), None, "stopped");
+    clock.mark(Some((10.0, 0.5)));
+    let later = Instant::now() + Duration::from_millis(200);
+    // 200 ms later at half speed, heard 100 ms after it was rendered: 10 s + (0.2 - 0.1) × 0.5.
+    let ms = clock.timeline_ms(later, 100.0).unwrap();
+    assert!((ms - 10_050.0).abs() < 5.0, "{ms}");
+    clock.mark(None);
+    assert_eq!(clock.timeline_ms(later, 0.0), None);
 }

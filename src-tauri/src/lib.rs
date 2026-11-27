@@ -16,6 +16,8 @@ pub mod lane_transcription;
 pub mod m4a;
 pub mod menu;
 pub mod menu_state;
+pub mod midi;
+pub mod midi_lanes;
 pub mod mixer;
 pub mod open_file;
 pub mod pdf;
@@ -75,6 +77,12 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
                 let dir = app.path().app_data_dir()?.join(LIBRARY_DIR);
                 app.manage(audio::AudioState::new(dir));
             }
+            if app.try_state::<midi::MidiState>().is_none() {
+                app.manage(midi::MidiState::new(
+                    app.path().app_data_dir()?.join("midi"),
+                ));
+            }
+            app.state::<midi::MidiState>().start(app.handle());
             if app.try_state::<transcription::Running>().is_none() {
                 app.manage(transcription::Running::default());
             }
@@ -282,6 +290,18 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             audio::transfer::audio_stage_finish,
             audio::transfer::audio_stage_abort,
             audio::audio_set_lanes,
+            audio::audio_midi_live,
+            audio::audio_midi_arm,
+            audio::audio_midi_panic,
+            audio::audio_instrument_editor,
+            audio::audio_instrument_state,
+            midi::midi_devices,
+            midi::midi_device_update,
+            midi::midi_device_forget,
+            midi::midi_pad_preset,
+            midi::midi_record_start,
+            midi::midi_record_stop,
+            midi::midi_inject,
             audio::audio_zero_crossing,
             audio::audio_extract_source,
             audio::audio_spectrogram,

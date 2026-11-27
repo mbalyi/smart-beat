@@ -7,6 +7,7 @@ import {
   CopyIcon,
   CopyPlusIcon,
   ListOrderedIcon,
+  KeyboardMusicIcon,
   ListPlusIcon,
   CrosshairIcon,
   DrumIcon,
@@ -571,6 +572,8 @@ export function TrackList({
     grid: SongGrid;
     /** Adds an empty lane (no file). */
     onAdd: () => void;
+    /** Adds a MIDI lane with an empty clip and opens it in the MIDI editor. */
+    onAddMidi?: () => void;
     /** Opens the file chooser and puts the file on a new lane. */
     onImport: () => void;
     onRecord: () => void;
@@ -691,6 +694,18 @@ export function TrackList({
                     data-tour="add-audio-lane"
                   >
                     <ListPlusIcon />
+                  </Button>
+                )}
+                {audio?.onAddMidi && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="New MIDI lane"
+                    title="New MIDI lane (draw notes, or record from pads, a keyboard or a drum kit)"
+                    onClick={audio.onAddMidi}
+                    data-tour="add-midi-lane"
+                  >
+                    <KeyboardMusicIcon />
                   </Button>
                 )}
                 {audio && (

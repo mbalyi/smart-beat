@@ -1,8 +1,10 @@
+import { isDrumLane } from "@/lib/midi-editor/controllers";
 import {
   AudioLinesIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   FolderIcon,
+  KeyboardMusicIcon,
   MoreHorizontalIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
@@ -101,7 +103,11 @@ export function LaneRow({
     (x: number) => timelineMsAtBar(audio, grid, x / barWidth),
     [audio, grid, barWidth],
   );
-  const label = lane.folder ? `folder ${lane.name}` : `lane ${lane.name}`;
+  const label = lane.folder
+    ? `folder ${lane.name}`
+    : lane.kind === "midi"
+      ? `MIDI lane ${lane.name}`
+      : `lane ${lane.name}`;
   const childLanes = lane.folder ? audio.lanes.filter((l) => l.parent === lane.id) : [];
   const children = childLanes.length;
   // A folder is on while any lane in it is; an empty folder has nothing to show.
@@ -189,10 +195,19 @@ export function LaneRow({
                   lane.folder ? update({ collapsed: !lane.collapsed }) : onOpenEditor(lane.id)
                 }
                 aria-label={`Edit the ${label}`}
-                title={lane.folder ? `${children} lanes` : "Open the lane editor"}
+                title={
+                  lane.folder
+                    ? `${children} lanes`
+                    : lane.kind === "midi"
+                      ? "Open the MIDI editor"
+                      : "Open the lane editor"
+                }
                 className="min-w-0 truncate rounded text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {lane.folder && <FolderIcon className="mr-1 inline size-3.5" aria-hidden="true" />}
+                {lane.kind === "midi" && (
+                  <KeyboardMusicIcon className="mr-1 inline size-3.5" aria-hidden="true" />
+                )}
                 {lane.name}
               </button>
             )}
@@ -304,6 +319,7 @@ export function LaneRow({
                 key={clip.id}
                 clip={clip}
                 laneName={lane.name}
+                drums={isDrumLane(lane)}
                 color={color}
                 info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
                 missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}

@@ -1,3 +1,4 @@
+import { isDrumLane } from "@/lib/midi-editor/controllers";
 import {
   ArrowLeftIcon,
   AudioWaveformIcon,
@@ -635,6 +636,7 @@ function StudioLane({
                 key={clip.id}
                 clip={clip}
                 laneName={lane.name}
+                drums={isDrumLane(lane)}
                 color={color}
                 info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
                 missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}

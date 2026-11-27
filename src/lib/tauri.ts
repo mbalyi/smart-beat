@@ -231,7 +231,7 @@ export interface TrackMix {
 }
 
 /** Mirrors `mixer::VERSION` in `src-tauri/src/mixer.rs`. */
-export const MIXER_SETTINGS_VERSION = 3;
+export const MIXER_SETTINGS_VERSION = 4;
 /** Mirrors `mixer::MIN_VERSION`: older settings files that still load. */
 export const MIXER_SETTINGS_MIN_VERSION = 1;
 
@@ -390,7 +390,97 @@ export interface AudioClip {
   stretch: StretchMarker[];
   /** Clips with the same group id move, nudge, delete and select together. */
   groupId?: string;
+  /**
+   * A MIDI clip's events (ADR 0006). Set only on clips of a MIDI lane; their `takes` keep only
+   * the take names (an empty `sourceId`), and `midi.takes[i]` holds the events of `takes[i]`.
+   */
+  midi?: MidiClipData;
 }
+
+/** Mirrors `MidiNote`: one note of a MIDI clip, in ms from the clip start. */
+export interface MidiNote {
+  id: string;
+  startMs: number;
+  lenMs: number;
+  /** MIDI key 0 … 127. */
+  pitch: number;
+  /** 1 … 127. */
+  vel: number;
+  /** MIDI channel 0 … 15. */
+  chan: number;
+  /** Where the note was played before quantize (un-quantize returns here). */
+  rawStartMs?: number;
+  rawLenMs?: number;
+  muted?: boolean;
+}
+
+/** What a MIDI controller event changes. */
+export type MidiCcKind = "cc" | "bend" | "pressure" | "program";
+
+/** Mirrors `MidiCc`: a controller, pitch bend, channel pressure or program change. */
+export interface MidiCc {
+  atMs: number;
+  kind: MidiCcKind;
+  /** The controller number for `cc` (0 … 127). */
+  cc?: number;
+  /** 0 … 127, or -8192 … 8191 for a pitch bend. */
+  value: number;
+  chan: number;
+}
+
+/** One take of a MIDI clip. */
+export interface MidiTake {
+  notes: MidiNote[];
+  cc: MidiCc[];
+}
+
+/** Mirrors `MidiClipData`. */
+export interface MidiClipData {
+  takes: MidiTake[];
+}
+
+/** What a pad plays when it is hit. */
+export type PadPlayback = "oneShot" | "gate" | "loop";
+
+/** Mirrors `PadSlot`: one pad of a pad bank (a sample, or a drum of the kit). */
+export interface PadSlot {
+  /** The MIDI key that triggers the pad (after the device's pad map). */
+  key: number;
+  name: string;
+  /** A sample from the sample browser. */
+  sample?: { folderId: string; rel: string };
+  /** The sample in the song's pool (filled when the song embeds it). */
+  sourceId?: string;
+  /** A drum of the lane's kit instead of a sample (a GM drum key). */
+  drum?: number;
+  playback: PadPlayback;
+  trimStartMs: number;
+  /** 0: to the end of the sample. */
+  trimEndMs: number;
+  semitones: number;
+  cents: number;
+  /** 0 … 1. */
+  volume: number;
+  /** -1 … 1. */
+  pan: number;
+  /** How much velocity changes the volume, 0 … 1. */
+  velDepth: number;
+  /** Pads in one choke group (1 … 16) silence each other; 0: none. */
+  choke: number;
+  /** The most voices of this pad at once (1 … 32). */
+  voices: number;
+  /** Send levels to the song's first two buses, 0 … 1. */
+  sendA: number;
+  sendB: number;
+}
+
+/** Mirrors `LaneInstrument`: what a MIDI lane sounds with. */
+export type LaneInstrument =
+  | { type: "soundfont"; program: number; bank: number }
+  | { type: "drums" }
+  | { type: "kit"; kitId: string }
+  | { type: "pads"; pads: PadSlot[] }
+  | { type: "plugin"; format: "vst3" | "clap"; path: string; name: string; state?: string };
 
 /** Mirrors `AudioSource`: an audio file that clips play. */
 export interface AudioSource {
@@ -447,6 +537,10 @@ export interface AudioLane extends BackingParams {
   clips: AudioClip[];
   /** Shown under the tabs in the continuous view (off by default; the track list shows every lane). */
   shownInScore?: boolean;
+  /** A MIDI lane (ADR 0006); absent: an audio lane. */
+  kind?: "midi";
+  /** A MIDI lane's sound (unset: General MIDI piano). */
+  instrument?: LaneInstrument;
 }
 
 /** Mirrors `AudioBus`: a bus that lane sends feed (a reverb or delay return). */
@@ -476,7 +570,7 @@ export interface AudioRegion {
   name: string;
 }
 
-/** The audio side of a song (settings version 3). */
+/** The audio side of a song (settings version 4: MIDI lanes added). */
 export interface AudioLanesSettings {
   lanes: AudioLane[];
   sources: AudioSource[];
@@ -706,6 +800,18 @@ export async function pickScoreFile(): Promise<string | null> {
       { name: "Capella files", extensions: ["capx"] },
     ],
   });
+}
+
+/** Shows the native Open dialog for a MIDI file (onto a MIDI lane). */
+export async function pickMidiFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const picked = await openDialog({
+    title: "Import a MIDI file",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "MIDI files", extensions: ["mid", "midi"] }],
+  });
+  return typeof picked === "string" ? picked : null;
 }
 
 /** What the native Save dialog offers. */
@@ -1353,6 +1459,26 @@ export interface EngineLanes {
 export const setEngineLanes = (lanes: EngineLanes | null) =>
   call<void>("audio_set_lanes", { lanes });
 
+/** A MIDI message: status, data 1, data 2. */
+export type MidiMessage = [number, number, number];
+
+/** Plays MIDI messages on a MIDI lane now (the on-screen pads, the computer keyboard). */
+export const playLaneMidi = (lane: string, messages: MidiMessage[]) =>
+  call<void>("audio_midi_live", { lane, messages });
+
+/** Arms a MIDI lane for live playing (null: none): heard while the song is stopped. */
+export const armMidiLane = (lane: string | null) => call<void>("audio_midi_arm", { lane });
+
+/** Stops every note of every MIDI lane (panic). */
+export const midiPanic = () => call<void>("audio_midi_panic");
+
+/** Opens or closes the editor window of a MIDI lane's instrument plugin. */
+export const instrumentEditor = (lane: string, open: boolean) =>
+  call<void>("audio_instrument_editor", { lane, open });
+
+/** The current settings of a MIDI lane's instrument plugin (base64), to keep with the song. */
+export const instrumentState = (lane: string) => call<string>("audio_instrument_state", { lane });
+
 /** The nearest zero crossing to `ms` in a loaded file (within 10 ms). */
 export const audioZeroCrossing = (source: string, ms: number) =>
   call<number>("audio_zero_crossing", { source, ms });
@@ -1856,6 +1982,8 @@ export interface ScannedPlugin {
   vendor: string;
   version: string;
   hasGui: boolean;
+  /** An instrument (it plays notes): one a MIDI lane can sound with. */
+  instrument?: boolean;
 }
 
 /** Mirrors `PluginScanReport` in `src-tauri/src/audio/plugin.rs`. */
@@ -2616,3 +2744,100 @@ export async function cancelStemModelDownload(): Promise<void> {
 }
 
 export const removeStemModel = (model: StemModelId) => call<void>("stem_model_remove", { model });
+
+// --- MIDI input (ADR 0006) ------------------------------------------------------------------
+
+/** Mirrors `ControlAction` in `src-tauri/src/midi/mapping.rs`. */
+export type MidiControlAction =
+  | "playPause"
+  | "stop"
+  | "record"
+  | "metronome"
+  | "loop"
+  | "laneVolume"
+  | "lanePan"
+  | "masterVolume"
+  | "speed";
+
+/** Mirrors `ControlMap`. */
+export interface MidiControlMap {
+  source: "cc" | "note";
+  chan: number;
+  number: number;
+  action: MidiControlAction;
+  relative: boolean;
+}
+
+/** Mirrors `PadRoute`: the note a pad sends and the note it plays. */
+export interface PadRoute {
+  from: number;
+  to: number;
+}
+
+/** Mirrors `DeviceSettings`. */
+export interface MidiDeviceSettings {
+  name: string;
+  alias: string;
+  enabled: boolean;
+  offsetMs: number;
+  controlOnly: boolean;
+  channel: number | null;
+  transpose: number;
+  fixedVelocity: number | null;
+  padLayout: "grid16" | "grid8";
+  /** The note each pad sends, by pad (learned on the pad board; 255: not learned). */
+  padNotes: number[];
+  pads: PadRoute[];
+  controls: MidiControlMap[];
+}
+
+/** Mirrors `DeviceView`. */
+export interface MidiDevice {
+  name: string;
+  connected: boolean;
+  settings: MidiDeviceSettings;
+}
+
+/** Mirrors `Activity`: a note, controller or button seen on a device. */
+export interface MidiActivity {
+  device: string;
+  kind: "note" | "noteOff" | "cc" | "bend" | "pressure" | "program" | "transport";
+  chan: number;
+  number: number;
+  value: number;
+  plays: number | null;
+}
+
+/** Mirrors `ControlEvent`. */
+export interface MidiControlEvent {
+  action: MidiControlAction;
+  value: number | null;
+  relative: boolean;
+}
+
+export type PadPreset = "thru" | "gmKit" | "chromatic";
+
+export const listMidiDevices = () => call<MidiDevice[]>("midi_devices");
+export const updateMidiDevice = (settings: MidiDeviceSettings) =>
+  call<MidiDevice[]>("midi_device_update", { settings });
+export const forgetMidiDevice = (name: string) =>
+  call<MidiDevice[]>("midi_device_forget", { name });
+export const midiPadPreset = (preset: PadPreset, first: number, count: number) =>
+  call<PadRoute[]>("midi_pad_preset", { preset, first, count });
+/** Starts recording what is played on the armed MIDI lane. */
+export const midiRecordStart = (latencyMs: number) =>
+  call<void>("midi_record_start", { latencyMs });
+/** Stops recording: the messages, stamped with the timeline ms the player heard. */
+export const midiRecordStop = () =>
+  call<{ ms: number; status: number; d1: number; d2: number }[]>("midi_record_stop");
+/** Plays the on-screen pads or the computer keyboard like a device (heard and recorded). */
+export const midiInject = (messages: MidiMessage[]) => call<void>("midi_inject", { messages });
+
+/** Subscribes to MIDI events. Resolves to an unsubscribe function. */
+export async function onMidiEvent<T>(
+  name: "midi://devices" | "midi://activity" | "midi://control",
+  handler: (payload: T) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<T>(name, (event) => handler(event.payload));
+}

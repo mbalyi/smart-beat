@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { ClipHandles, type ClipEdits } from "@/components/audio-lanes/clip-handles";
+import { MidiClipPreview } from "@/components/midi/midi-clip-preview";
 import { groupHue } from "@/lib/audio-lanes/clip-groups";
 import { activeTake, clipEndMs } from "@/lib/audio-lanes/model";
 import { clipPeaks } from "@/lib/audio-lanes/peaks";
@@ -63,6 +64,7 @@ export function ClipView({
   onOpen,
   onCursor,
   edits,
+  drums,
 }: {
   clip: AudioClip;
   laneName: string;
@@ -87,6 +89,8 @@ export function ClipView({
   onCursor?: (ms: number) => void;
   /** Lane edits for the fade and volume handles (none: no handles). */
   edits?: ClipEdits;
+  /** A MIDI clip of a drum or pad lane: its notes are drawn as hits. */
+  drums?: boolean;
 }) {
   const [preview, setPreview] = useState<ClipDrag | null>(null);
   const press = useRef<{
@@ -214,7 +218,7 @@ export function ClipView({
       data-tour="lane-clip"
       data-drag={preview?.kind}
       aria-pressed={selected}
-      aria-label={`${name} on ${laneName}${clip.groupId ? ", grouped" : ""}${clip.mute ? ", muted" : ""}${clip.locked ? ", locked" : ""}${missing ? ", file missing" : ""}`}
+      aria-label={`${name}${clip.midi ? " (MIDI)" : ""} on ${laneName}${clip.groupId ? ", grouped" : ""}${clip.mute ? ", muted" : ""}${clip.locked ? ", locked" : ""}${missing ? ", file missing" : ""}`}
       data-group-id={clip.groupId}
       title={missing ? `“${name}” cannot be found` : name}
       onPointerDown={onPointerDown}
@@ -262,6 +266,7 @@ export function ClipView({
             : ""}
         </span>
       )}
+      {clip.midi && <MidiClipPreview clip={clip} color={color} drums={drums} />}
       {path && (
         <svg
           aria-hidden="true"
@@ -304,7 +309,7 @@ export function ClipView({
     <>
       {button}
       {/* Only on the selected clip: small targets on every clip would crowd the lane. */}
-      {edits && selected && (
+      {edits && selected && !clip.midi && (
         <ClipHandles {...{ clip, name, left, width, toX, toMs, edits, compact }} />
       )}
     </>

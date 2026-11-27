@@ -1,6 +1,12 @@
 import { normalizeLaneHeight } from "@/lib/audio-lanes/lane-height";
 import { MAX_TRACK_EFFECTS } from "@/lib/audio/effects";
 import { normalizeMarkers, normalizeRegions } from "@/lib/audio-lanes/markers";
+import {
+  instrumentSources,
+  normalizeInstrument,
+  normalizeMidi,
+  type MidiClipInit,
+} from "@/lib/audio-lanes/midi";
 import { FLAT_EQ, normalizeEq } from "@/lib/score/mixer";
 import { isTrackColor } from "@/lib/score/track-colors";
 import type {
@@ -13,6 +19,7 @@ import type {
   BackingFilter,
   ClipFade,
   FadeShape,
+  LaneInstrument,
   MixerSettings,
   SyncPoint,
 } from "@/lib/tauri";
@@ -129,6 +136,29 @@ export function newClip(
   };
 }
 
+/** A new MIDI lane that sounds with `instrument` (General MIDI piano when unset). */
+export function newMidiLane(
+  name: string,
+  instrument: LaneInstrument = { type: "soundfont", program: 0, bank: 0 },
+  id: string = newId(),
+): AudioLane {
+  return { ...newLane(name, id), kind: "midi", followTransposition: false, instrument };
+}
+
+/** A new MIDI clip of `lengthMs` at `startMs`, holding one take with `init`'s events. */
+export function newMidiClip(
+  name: string,
+  startMs: number,
+  lengthMs: number,
+  init: MidiClipInit = {},
+  id: string = newId(),
+): AudioClip {
+  return {
+    ...newClip("", name, startMs, lengthMs, id),
+    midi: { takes: [{ notes: init.notes ?? [], cc: init.cc ?? [] }] },
+  };
+}
+
 /** The take a clip plays. */
 export const activeTake = (clip: AudioClip) => clip.takes[clip.take] ?? clip.takes[0]!;
 
@@ -177,6 +207,27 @@ function normalizeFade(fade: ClipFade | undefined, lengthMs: number): ClipFade {
 export function normalizeClip(clip: AudioClip): AudioClip {
   const takes = clip.takes.length > 0 ? clip.takes : [];
   const lengthMs = Math.max(MIN_CLIP_MS, clip.lengthMs);
+  if (clip.midi) {
+    const { groupId, midi, ...rest } = clip;
+    return {
+      ...rest,
+      ...(typeof groupId === "string" && GROUP_ID.test(groupId) && { groupId }),
+      takes: takes.map((t) => ({ ...t, sourceId: "", offsetMs: 0 })),
+      take: clamp(Math.round(clip.take), 0, Math.max(0, takes.length - 1)),
+      startMs: Math.max(0, clip.startMs),
+      lengthMs,
+      gainDb: clamp(clip.gainDb, MIN_GAIN_DB, MAX_GAIN_DB),
+      semitones: clamp(Math.round(clip.semitones), -MAX_SEMITONES, MAX_SEMITONES),
+      cents: 0,
+      playrate: 1,
+      reversed: false,
+      fadeIn: NO_FADE,
+      fadeOut: NO_FADE,
+      envelope: [],
+      stretch: [],
+      midi: normalizeMidi(midi, takes.length, lengthMs),
+    };
+  }
   const fadeIn = normalizeFade(clip.fadeIn, lengthMs);
   const fadeOut = normalizeFade(clip.fadeOut, lengthMs - fadeIn.ms);
   const { groupId, ...rest } = clip;
@@ -204,12 +255,22 @@ export function normalizeClip(clip: AudioClip): AudioClip {
   };
 }
 
-/** A lane with every value in range; clips that point at no source are dropped. */
+/**
+ * A lane with every value in range; audio clips that point at no source, and clips of the other
+ * kind (an audio clip on a MIDI lane or the other way round), are dropped.
+ */
 export function normalizeLane(lane: AudioLane, sources: ReadonlySet<string>): AudioLane {
-  const { shownInScore, ...rest } = lane;
+  const { shownInScore, kind, instrument, ...rest } = lane;
+  const midi = kind === "midi";
+  const keepClip = (c: AudioClip) =>
+    midi
+      ? c.midi !== undefined && c.takes.length > 0
+      : c.midi === undefined && c.takes.length > 0 && c.takes.every((t) => sources.has(t.sourceId));
   return {
     ...rest,
     ...(shownInScore === true && { shownInScore: true }),
+    ...(midi && { kind: "midi" as const }),
+    ...(midi && instrument && { instrument: normalizeInstrument(instrument, sources) }),
     color: isTrackColor(lane.color) ? lane.color.toLowerCase() : null,
     volume: clamp(lane.volume, 0, 1),
     pan: clamp(lane.pan, -1, 1),
@@ -224,7 +285,7 @@ export function normalizeLane(lane: AudioLane, sources: ReadonlySet<string>): Au
     clips: lane.folder
       ? []
       : lane.clips
-          .filter((c) => c.takes.length > 0 && c.takes.every((t) => sources.has(t.sourceId)))
+          .filter(keepClip)
           .map(normalizeClip)
           .sort((a, b) => a.startMs - b.startMs),
   };
@@ -240,9 +301,10 @@ function normalizeBus(bus: AudioBus): AudioBus {
 
 /** Only sources that a clip plays (a removed clip's file is dropped on the next save). */
 export function usedSources(audio: AudioLanesSettings): AudioSource[] {
-  const used = new Set(
-    audio.lanes.flatMap((l) => l.clips.flatMap((c) => c.takes.map((t) => t.sourceId))),
-  );
+  const used = new Set([
+    ...audio.lanes.flatMap((l) => l.clips.flatMap((c) => c.takes.map((t) => t.sourceId))),
+    ...audio.lanes.flatMap((l) => instrumentSources(l.instrument)),
+  ]);
   return audio.sources.filter((s) => used.has(s.id));
 }
 

@@ -13,6 +13,7 @@ export const FEATURE_GROUPS = {
   stems: ["**/stem-separation.spec.ts", "**/stem-cloud.spec.ts", "**/stem-export.spec.ts"],
   "practice-together": ["**/practice-together*.spec.ts"],
   "audio-lanes": ["**/audio-lanes*.spec.ts"],
+  "midi-lanes": ["**/midi-lanes*.spec.ts"],
   edit: [
     "**/tab-line-click.spec.ts",
     "**/selection*.spec.ts",

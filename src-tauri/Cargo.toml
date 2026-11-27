@@ -21,6 +21,8 @@ tauri-build = { version = "2.7", features = [] }
 cmake = "0.1"
 
 [dependencies]
+# Lock-free queue for live MIDI notes into the audio thread (ADR 0006).
+crossbeam-queue = "0.3"
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2.8"
 # In-app updates from GitHub Releases (docs/release.md) and the relaunch after installing one.
@@ -67,6 +69,8 @@ sevenz-rust2 = { version = "0.25", default-features = false }
 # platform stores (apple-native, windows-native, zbus Secret Service).
 getrandom = "0.4"
 keyring = { version = "4", default-features = false, features = ["v1"] }
+# MIDI input from pad controllers, keyboards and drum kits (ADR 0006); MIT.
+midir = "0.11.2"
 
 # macOS: the system's AAC encoder (AVFoundation) writes `.m4a` exports (src/m4a.rs).
 [target.'cfg(target_os = "macos")'.dependencies]

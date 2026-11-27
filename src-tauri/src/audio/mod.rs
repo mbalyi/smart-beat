@@ -17,6 +17,7 @@ pub mod mixing;
 pub mod monitor;
 pub mod output;
 pub mod plugin;
+pub mod plugin_instrument;
 mod plugin_process;
 pub mod plugin_wire;
 pub mod sf3;
@@ -220,6 +221,11 @@ struct MonitorState {
 
 #[derive(Default)]
 struct Inner {
+    /// Where the timeline is, shared with every engine and the MIDI input (ADR 0006).
+    clock: Arc<lanes::TimelineClock>,
+    /// The MIDI lane armed or monitored (ADR 0006): its live notes are heard, with a small
+    /// output buffer.
+    midi_live: Option<String>,
     sound_fonts: HashMap<String, Arc<SoundFont>>,
     engine: Option<Arc<Mutex<Engine>>>,
     output: Option<Output>,
@@ -272,8 +278,13 @@ impl Inner {
     }
 
     /// Builds the lanes for an engine at `rate` (allocates; without the engine lock).
-    fn prepare_lanes(&self, state: &AudioState, rate: u32) -> Option<lanes::PreparedLanes> {
-        Some(self.lane_snapshot()?.build(state, rate))
+    fn prepare_lanes(
+        &self,
+        state: &AudioState,
+        rate: u32,
+        synths: &engine::SynthSource,
+    ) -> Option<lanes::PreparedLanes> {
+        Some(self.lane_snapshot()?.build(state, rate, synths))
     }
 
     /// What building the lanes needs, cloned (cheap: `Arc`s and settings), so the build can run
@@ -309,7 +320,12 @@ struct LaneSnapshot {
 
 impl LaneSnapshot {
     /// Builds the lanes for an engine at `rate` (allocates; chains may start plugin workers).
-    fn build(&self, state: &AudioState, rate: u32) -> lanes::PreparedLanes {
+    fn build(
+        &self,
+        state: &AudioState,
+        rate: u32,
+        synths: &engine::SynthSource,
+    ) -> lanes::PreparedLanes {
         let build = |lane: Option<usize>, slots: &[EffectSlot]| {
             let target = lane.map(|lane| plugin::PluginTarget::Lane(plugin::LaneTarget { lane }));
             build_chain(
@@ -336,7 +352,86 @@ impl LaneSnapshot {
             max_block: BLOCK,
             build_chain: &build,
             seconds_at: &seconds_at,
+            sound: &|lane| midi_sound(state, synths, &self.sources, lane, rate as f32),
+            live_queue: &|id| state.live_queue(id),
         })
+    }
+}
+
+/// The instrument a MIDI lane plays (ADR 0006), built off the audio thread.
+fn midi_sound(
+    state: &AudioState,
+    synths: &engine::SynthSource,
+    sources: &HashMap<String, Arc<DecodedAudio>>,
+    lane: &crate::audio_lanes::AudioLane,
+    rate: f32,
+) -> Option<lanes::midi::LaneSound> {
+    use crate::midi_lanes::LaneInstrument;
+    use lanes::midi::{LaneSound, channel_for};
+    let channel = channel_for(lane.instrument.as_ref());
+    let synth = |source: engine::SynthSource| {
+        source
+            .instrument(engine::POLYPHONY)
+            .map_err(|e| eprintln!("MIDI lane instrument: {e}"))
+            .ok()
+    };
+    match lane.instrument.as_ref() {
+        None | Some(LaneInstrument::Soundfont { .. }) => {
+            let (program, bank) = match lane.instrument {
+                Some(LaneInstrument::Soundfont { program, bank }) => (program, bank),
+                _ => (0, 0),
+            };
+            let mut instrument = synth(synths.clone())?;
+            instrument.midi(0, 0xb0, 0, ((bank >> 7) & 0x7f) as i32);
+            instrument.midi(0, 0xb0, 32, (bank & 0x7f) as i32);
+            instrument.midi(0, 0xc0, program.min(127) as i32, 0);
+            Some(LaneSound::Synth {
+                instrument,
+                channel,
+            })
+        }
+        Some(LaneInstrument::Drums) => Some(LaneSound::Synth {
+            instrument: synth(synths.clone())?,
+            channel,
+        }),
+        Some(LaneInstrument::Kit { kit_id }) => {
+            let kit = state
+                .kits
+                .load(kit_id)
+                .map_err(|e| eprintln!("MIDI lane kit: {e}"))
+                .ok();
+            Some(LaneSound::Synth {
+                instrument: synth(synths.clone().with_kit(kit))?,
+                channel,
+            })
+        }
+        Some(LaneInstrument::Pads { pads }) => {
+            let sampled: Vec<lanes::pads::Pad> = pads
+                .iter()
+                .filter_map(|slot| {
+                    let audio = sources.get(slot.source_id.as_deref()?)?;
+                    Some(lanes::pads::Pad::new(slot, audio.clone(), rate))
+                })
+                .collect();
+            let mut drum_keys = [None; 128];
+            for slot in pads.iter().filter(|p| p.source_id.is_none()) {
+                if let (Some(drum), Some(key)) = (slot.drum, drum_keys.get_mut(slot.key as usize)) {
+                    *key = Some(drum.min(127));
+                }
+            }
+            let drums = drum_keys
+                .iter()
+                .any(Option::is_some)
+                .then(|| synth(synths.clone()))
+                .flatten();
+            Some(LaneSound::Pads(Box::new(lanes::pads::PadBank::new(
+                lanes::pads::PadSampler::new(sampled, rate),
+                drums,
+                drum_keys,
+            ))))
+        }
+        // A VST3 or CLAP instrument: built by the plugin pool.
+        Some(LaneInstrument::Plugin { .. }) => state.plugin_instrument(lane, rate),
     }
 }
 
@@ -349,6 +444,10 @@ pub struct AudioState {
     pub soundfonts: Arc<soundfonts::SoundFontLibrary>,
     /// Third-party plugin workers (VST3 and CLAP, #80).
     pub plugins: plugin::PluginPool,
+    /// Live MIDI notes for each MIDI lane, by lane id (ADR 0006).
+    live_midi: Mutex<HashMap<String, lanes::midi::LiveQueue>>,
+    /// The instrument plugin of each MIDI lane (what it was built from, and its helper).
+    instruments: Mutex<HashMap<String, (String, Arc<plugin::PluginWorker>)>>,
 }
 
 impl AudioState {
@@ -365,7 +464,97 @@ impl AudioState {
             kits: Arc::new(kits::KitLibrary::new(kits_dir)),
             soundfonts: Arc::new(soundfonts::SoundFontLibrary::new(soundfonts_dir)),
             plugins: plugin::PluginPool::default(),
+            live_midi: Mutex::new(HashMap::new()),
+            instruments: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Where the timeline is (for stamping live MIDI notes).
+    pub fn timeline_clock(&self) -> Arc<lanes::TimelineClock> {
+        self.inner.lock().unwrap().clock.clone()
+    }
+
+    /// The lane armed for live MIDI (none: no lane).
+    pub fn live_lane(&self) -> Option<String> {
+        self.inner.lock().unwrap().midi_live.clone()
+    }
+
+    /// Every MIDI lane stops every note (all sound off on every channel).
+    pub fn midi_panic(&self) {
+        for queue in self.live_midi.lock().unwrap().values() {
+            for chan in 0..16u8 {
+                let _ = queue.push([0xb0 | chan, 120, 0]);
+                let _ = queue.push([0xb0 | chan, 123, 0]);
+            }
+        }
+    }
+
+    /// The queue that carries live notes into a MIDI lane (made on first use, kept for good).
+    pub fn live_queue(&self, lane: &str) -> lanes::midi::LiveQueue {
+        self.live_midi
+            .lock()
+            .unwrap()
+            .entry(lane.to_string())
+            .or_insert_with(lanes::midi::live_queue)
+            .clone()
+    }
+
+    /// A VST3 or CLAP instrument for a MIDI lane, in its own helper process (none when plugins
+    /// are switched off or it cannot be loaded; the reason is reported like an effect's).
+    fn plugin_instrument(
+        &self,
+        lane: &crate::audio_lanes::AudioLane,
+        rate: f32,
+    ) -> Option<lanes::midi::LaneSound> {
+        use crate::midi_lanes::{InstrumentFormat, LaneInstrument};
+        let Some(LaneInstrument::Plugin {
+            format,
+            path,
+            state,
+            ..
+        }) = &lane.instrument
+        else {
+            return None;
+        };
+        let state = chain::decode_plugin_state(state.as_deref().unwrap_or(""))
+            .map_err(|e| eprintln!("instrument plugin: {e}"))
+            .ok()?;
+        let spec = plugin::PluginSpec {
+            format: match format {
+                InstrumentFormat::Vst3 => plugin::PluginFormat::Vst3,
+                InstrumentFormat::Clap => plugin::PluginFormat::Clap,
+            },
+            path: path.clone(),
+            state,
+        };
+        // An unchanged instrument keeps its helper (every lane edit rebuilds the lanes).
+        let key = format!("{format:?}:{path}:{}", spec.state.len());
+        let cached = self
+            .instruments
+            .lock()
+            .unwrap()
+            .get(&lane.id)
+            .filter(|(k, w)| *k == key && w.alive())
+            .map(|(_, w)| w.clone());
+        let worker = match cached {
+            Some(worker) => worker,
+            None => {
+                let worker = self
+                    .plugins
+                    .load(None, &spec, rate)
+                    .map_err(|e| eprintln!("instrument plugin: {e}"))
+                    .ok()?;
+                self.instruments
+                    .lock()
+                    .unwrap()
+                    .insert(lane.id.clone(), (key, worker.clone()));
+                worker
+            }
+        };
+        Some(lanes::midi::LaneSound::Synth {
+            instrument: Box::new(plugin_instrument::PluginInstrument::new(worker)),
+            channel: None,
+        })
     }
 
     /// The loaded recording's file name and encoded bytes (for embedding).
@@ -660,7 +849,7 @@ fn prepare(
             (track, split)
         })
         .collect();
-    let lanes = inner.prepare_lanes(state, rate);
+    let lanes = inner.prepare_lanes(state, rate, synths);
     Prepared {
         kits,
         master,
@@ -677,6 +866,8 @@ fn install(
     prepared: Prepared,
 ) -> Vec<Box<dyn std::any::Any + Send>> {
     let mut old: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
+    engine.set_live_midi(inner.midi_live.clone());
+    engine.set_clock(inner.clock.clone());
     for (track, mix) in inner.mixes.iter().enumerate() {
         engine.set_mix(track, *mix);
     }
@@ -852,6 +1043,8 @@ fn sync_monitor(state: &AudioState, inner: &mut Inner, rebuild: bool) -> Result<
 
 /// Opens the output again with a small buffer (or the usual one).
 fn set_low_latency(inner: &mut Inner, low_latency: bool) -> Result<(), CommandError> {
+    // A MIDI lane played live keeps the small buffer too.
+    let low_latency = low_latency || inner.midi_live.is_some();
     let (Some(engine), Some(output)) = (&inner.engine, &inner.output) else {
         return Ok(());
     };
@@ -1549,6 +1742,99 @@ pub fn audio_forget_sources(keep: Vec<String>, state: State<'_, AudioState>) {
     inner.sources.retain(|id, _| keep.contains(id));
 }
 
+/// The most live MIDI messages one call may carry.
+const MAX_LIVE_MESSAGES: usize = 256;
+
+/// Plays MIDI messages (status, data 1, data 2) on a MIDI lane now: the on-screen pads, the
+/// computer keyboard or a device routed by the frontend. Full queues drop what does not fit.
+#[tauri::command]
+pub fn audio_midi_live(
+    lane: String,
+    messages: Vec<[u8; 3]>,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    if lane.is_empty() || lane.len() > 80 || messages.len() > MAX_LIVE_MESSAGES {
+        return Err(audio_error("Invalid live MIDI"));
+    }
+    if messages
+        .iter()
+        .any(|m| m[0] < 0x80 || m[0] >= 0xf0 || m[1] > 127 || m[2] > 127)
+    {
+        return Err(audio_error("Invalid MIDI message"));
+    }
+    let queue = state.live_queue(&lane);
+    for message in messages {
+        let _ = queue.push(message);
+    }
+    Ok(())
+}
+
+/// Arms a MIDI lane for live playing (`null`: none): its notes are heard while the song is
+/// stopped, and the output uses a small buffer.
+#[tauri::command(async)]
+pub fn audio_midi_arm(
+    lane: Option<String>,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    if lane.as_ref().is_some_and(|l| l.is_empty() || l.len() > 80) {
+        return Err(audio_error("Invalid lane"));
+    }
+    let mut inner = state.inner.lock().unwrap();
+    inner.midi_live = lane.clone();
+    if let Some(engine) = inner.engine.clone() {
+        engine.lock().unwrap().set_live_midi(lane);
+    }
+    let monitor_open = inner.monitor.as_ref().is_some_and(|m| m.input.is_some());
+    set_low_latency(&mut inner, monitor_open)
+}
+
+/// Opens (or closes) the editor window of a MIDI lane's instrument plugin.
+#[tauri::command(async)]
+pub fn audio_instrument_editor(
+    lane: String,
+    open: bool,
+    state: State<'_, AudioState>,
+) -> Result<(), CommandError> {
+    let worker = state
+        .instruments
+        .lock()
+        .unwrap()
+        .get(&lane)
+        .map(|(_, w)| w.clone())
+        .ok_or_else(|| audio_error("The instrument is not loaded"))?;
+    if open {
+        worker.open_editor().map(|_| ()).map_err(audio_error)
+    } else {
+        worker.close_editor();
+        Ok(())
+    }
+}
+
+/// The current settings of a MIDI lane's instrument plugin (base64), to save with the song.
+#[tauri::command(async)]
+pub fn audio_instrument_state(
+    lane: String,
+    state: State<'_, AudioState>,
+) -> Result<String, CommandError> {
+    use base64::Engine;
+    let worker = state
+        .instruments
+        .lock()
+        .unwrap()
+        .get(&lane)
+        .map(|(_, w)| w.clone())
+        .ok_or_else(|| audio_error("The instrument is not loaded"))?;
+    let bytes = worker.save_state().map_err(audio_error)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Stops every note of every MIDI lane at once (panic).
+#[tauri::command]
+pub fn audio_midi_panic(state: State<'_, AudioState>) -> Result<(), CommandError> {
+    state.midi_panic();
+    Ok(())
+}
+
 /// Sets the song's audio lanes (`null`: none) and rebuilds them in the running engine.
 #[tauri::command(async)]
 pub fn audio_set_lanes(
@@ -1607,8 +1893,11 @@ pub fn audio_set_lanes(
     let (Some(snapshot), Some(engine)) = (snapshot, engine) else {
         return Ok(());
     };
-    let rate = engine.lock().unwrap().sample_rate() as u32;
-    let prepared = snapshot.build(&state, rate);
+    let (rate, synths) = {
+        let e = engine.lock().unwrap();
+        (e.sample_rate() as u32, e.synth_source())
+    };
+    let prepared = snapshot.build(&state, rate, &synths);
     let old = engine.lock().unwrap().set_lanes(Some(prepared));
     drop(old);
     Ok(())

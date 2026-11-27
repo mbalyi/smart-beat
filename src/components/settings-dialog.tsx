@@ -1,4 +1,10 @@
-import { CloudIcon, MicIcon, ShieldCheckIcon, type LucideIcon } from "lucide-react";
+import {
+  CloudIcon,
+  KeyboardMusicIcon,
+  MicIcon,
+  ShieldCheckIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useId, useRef, useState, type ReactNode } from "react";
 
 import settingsTitle from "@/assets/settings/settings-title.webp";
@@ -7,6 +13,7 @@ import { AsyncContent } from "@/components/async-content";
 import { DIALOG_NEON, DialogArt, DialogLogo } from "@/components/ai/dialog-art";
 import { CloudAccounts } from "@/components/cloud-accounts";
 import { AudioInputSetting } from "@/components/audio-input-setting";
+import { MidiSettings } from "@/components/midi/midi-settings";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -153,7 +160,7 @@ function CrashReportSetting({ initial }: { initial: CrashReportSettings | null }
   );
 }
 
-export type SettingsSection = "audio" | "cloud" | "privacy";
+export type SettingsSection = "audio" | "midi" | "cloud" | "privacy";
 
 /** The frame of the dialog: the neon ring and a height that never jumps between sections. */
 const SETTINGS_FRAME = `${DIALOG_NEON} h-[min(46rem,calc(100dvh-2rem))] sm:max-w-3xl`;
@@ -195,7 +202,8 @@ export function SettingsDialog({
             <DialogLogo src={settingsTitle} testId="settings-title-art" />
             <DialogTitle className="sr-only">Settings</DialogTitle>
             <DialogDescription className="text-base">
-              Choose your audio input, connect your cloud storage and decide what you share.
+              Choose your audio input and MIDI devices, connect your cloud storage and decide what
+              you share.
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="gap-3 px-6 pb-4 md:px-9">
@@ -210,6 +218,17 @@ export function SettingsDialog({
                 >
                   <AudioInputSetting />
                 </SettingsCard>
+                {desktop && (
+                  <SettingsCard
+                    id="midi"
+                    title="MIDI devices"
+                    icon={KeyboardMusicIcon}
+                    register={register}
+                    testId="settings-midi"
+                  >
+                    <MidiSettings />
+                  </SettingsCard>
+                )}
                 {desktop && (
                   <SettingsCard
                     id="cloud"

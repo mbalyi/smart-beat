@@ -20,7 +20,8 @@ use std::time::Duration;
 
 use super::plugin_process::HelperProcess;
 use super::plugin_wire::{
-    AUDIO_PROTOCOL_VERSION, AudioCommand, Command, MAX_AUDIO_FRAMES, SharedAudio,
+    AUDIO_PROTOCOL_VERSION, AudioCommand, BlockEvent, Command, MAX_AUDIO_FRAMES, MAX_BLOCK_EVENTS,
+    SharedAudio,
 };
 use serde::{Deserialize, Serialize};
 use vst3_host::process_isolation::{HostCommand, HostResponse};
@@ -73,6 +74,9 @@ pub struct ScannedPlugin {
     pub vendor: String,
     pub version: String,
     pub has_gui: bool,
+    /// An instrument (it plays notes): a MIDI lane can sound with it (ADR 0006).
+    #[serde(default)]
+    pub instrument: bool,
 }
 
 /// What a scan found.
@@ -282,7 +286,22 @@ fn probe_vst3(helper: &Path, path: &Path, sample_rate: f64) -> Result<ScannedPlu
         vendor: info.vendor.clone(),
         version: info.version.clone(),
         has_gui: info.has_gui,
+        instrument: is_instrument(
+            &info.category,
+            info.audio_inputs as i32,
+            info.has_midi_input,
+        ),
     })
+}
+
+/// Whether a plugin plays notes: its category says instrument or synth, or it takes MIDI in
+/// and no audio.
+fn is_instrument(category: &str, audio_inputs: i32, midi_in: bool) -> bool {
+    let category = category.to_ascii_lowercase();
+    category.contains("instrument")
+        || category.contains("synth")
+        || category.contains("sampler")
+        || (midi_in && audio_inputs == 0)
 }
 
 fn probe_clap(helper: &Path, path: &Path, sample_rate: f64) -> Result<ScannedPlugin, String> {
@@ -307,8 +326,12 @@ fn probe_clap(helper: &Path, path: &Path, sample_rate: f64) -> Result<ScannedPlu
             vendor,
             version,
             has_gui,
+            category,
+            audio_inputs,
+            has_midi_input,
             ..
         } => Ok(ScannedPlugin {
+            instrument: is_instrument(&category, audio_inputs, has_midi_input),
             format: PluginFormat::Clap,
             path: path.to_string_lossy().into_owned(),
             name: if name.is_empty() {
@@ -378,7 +401,12 @@ struct AudioSlot {
     frames: usize,
     left: Vec<f32>,
     right: Vec<f32>,
+    /// MIDI events of an instrument's block (preallocated; never grows on the audio thread).
+    events: Vec<BlockEvent>,
 }
+
+/// The most events one handover block holds.
+const SLOT_EVENTS: usize = 128;
 
 impl AudioSlot {
     fn new() -> Self {
@@ -387,6 +415,7 @@ impl AudioSlot {
             frames: 0,
             left: vec![0.0; HANDOVER_FRAMES],
             right: vec![0.0; HANDOVER_FRAMES],
+            events: Vec::with_capacity(SLOT_EVENTS),
         }
     }
 }
@@ -414,6 +443,8 @@ struct AudioBatch {
     lengths: Vec<usize>,
     left: Vec<f32>,
     right: Vec<f32>,
+    /// MIDI events, with offsets from the batch start.
+    events: Vec<BlockEvent>,
 }
 
 type AudioResult = Result<(Vec<f32>, Vec<f32>), String>;
@@ -512,6 +543,11 @@ impl PluginWorker {
     /// Hands one stereo block to the worker (drops it when the worker is
     /// behind: the audio thread never waits).
     pub fn push(&self, left: &[f32], right: &[f32]) {
+        self.push_with_events(left, right, &[]);
+    }
+
+    /// Hands one block with the MIDI events an instrument plays in it.
+    pub fn push_with_events(&self, left: &[f32], right: &[f32], events: &[BlockEvent]) {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
         if self.enabled.load(Ordering::Acquire)
             && left.len() == right.len()
@@ -522,6 +558,10 @@ impl PluginWorker {
             slot.frames = left.len();
             slot.left[..left.len()].copy_from_slice(left);
             slot.right[..right.len()].copy_from_slice(right);
+            slot.events.clear();
+            let room = slot.events.capacity();
+            slot.events
+                .extend_from_slice(&events[..events.len().min(room)]);
             slot.seq = seq;
         }
         self.submitted.store(seq, Ordering::Release);
@@ -529,7 +569,7 @@ impl PluginWorker {
 
     /// Worker-side read: publication makes missing inputs final, so a dropped
     /// push cannot strand later blocks. At most one ring is inspected.
-    fn next_input(&self, next: &mut u64) -> Option<(Vec<f32>, Vec<f32>)> {
+    fn next_input(&self, next: &mut u64) -> Option<(Vec<f32>, Vec<f32>, Vec<BlockEvent>)> {
         let newest = self.submitted.load(Ordering::Acquire);
         *next = (*next).max(self.oldest_input(newest));
         self.completed.store(*next - 1, Ordering::Release);
@@ -539,6 +579,7 @@ impl PluginWorker {
                 return Some((
                     slot.left[..slot.frames].to_vec(),
                     slot.right[..slot.frames].to_vec(),
+                    slot.events.clone(),
                 ));
             }
             *next += 1;
@@ -550,20 +591,28 @@ impl PluginWorker {
     /// Coalesce the already published contiguous prefix; never wait for more
     /// input and never hide dropped slots inside a larger plugin block.
     fn next_batch(&self, next: &mut u64) -> Option<AudioBatch> {
-        let (left, right) = self.next_input(next)?;
+        let (left, right, events) = self.next_input(next)?;
         let mut batch = AudioBatch {
             first: *next,
             lengths: vec![left.len()],
             left,
             right,
+            events,
         };
         *next += 1;
         let newest = self.submitted.load(Ordering::Acquire);
         while *next <= newest {
             let slot = self.in_ring[slot_index(*next)].lock().unwrap();
-            if slot.seq != *next || batch.left.len() + slot.frames > MAX_AUDIO_FRAMES {
+            if slot.seq != *next
+                || batch.left.len() + slot.frames > MAX_AUDIO_FRAMES
+                || batch.events.len() + slot.events.len() > MAX_BLOCK_EVENTS
+            {
                 break;
             }
+            let offset = batch.left.len() as u32;
+            batch
+                .events
+                .extend(slot.events.iter().map(|(at, bytes)| (at + offset, *bytes)));
             batch.lengths.push(slot.frames);
             batch.left.extend_from_slice(&slot.left[..slot.frames]);
             batch.right.extend_from_slice(&slot.right[..slot.frames]);
@@ -998,7 +1047,7 @@ fn run_worker(
         // Controls cannot be starved by a continuous stream of audio.
         match command {
             Ok(CtrlCmd::Process(left, right, reply)) => {
-                let _ = reply.send(backend.process(&left, &right));
+                let _ = reply.send(backend.process(&left, &right, &[]));
             }
             Ok(CtrlCmd::ApplyState(state)) => {
                 let result = if state.is_empty() {
@@ -1039,7 +1088,7 @@ fn run_worker(
             std::thread::sleep(Duration::from_micros(250));
             continue;
         };
-        match backend.process(&batch.left, &batch.right) {
+        match backend.process(&batch.left, &batch.right, &batch.events) {
             Ok((out_l, out_r)) => {
                 worker.finish_batch(&batch, &out_l, &out_r);
                 worker.set_status(true, String::new());
@@ -1130,8 +1179,14 @@ impl Backend {
         }
     }
 
-    fn process(&mut self, left: &[f32], right: &[f32]) -> Result<(Vec<f32>, Vec<f32>), String> {
+    fn process(
+        &mut self,
+        left: &[f32],
+        right: &[f32],
+        events: &[BlockEvent],
+    ) -> Result<(Vec<f32>, Vec<f32>), String> {
         self.audio.write(false, left, right)?;
+        self.audio.write_events(events);
         let response = self.process.send(
             Command::Audio(AudioCommand::ProcessShared { frames: left.len() }),
             PROCESS_TIMEOUT,
@@ -1421,10 +1476,38 @@ mod tests {
         drop(held);
         worker.push(&[2.0; 64], &[2.0; 64]);
         let mut next = 1;
-        let (left, _) = worker.next_input(&mut next).unwrap();
+        let (left, _, _) = worker.next_input(&mut next).unwrap();
         assert_eq!(next, 2);
         assert_eq!(left, [2.0; 64]);
         assert_eq!(worker.completed.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn an_instruments_notes_travel_with_their_blocks_at_their_frames() {
+        let worker = worker_without_a_helper();
+        worker.push_with_events(&[0.0; 64], &[0.0; 64], &[(3, [0x90, 60, 100])]);
+        worker.push_with_events(&[0.0; 64], &[0.0; 64], &[(10, [0x80, 60, 0])]);
+        let mut next = 1;
+        let batch = worker.next_batch(&mut next).unwrap();
+        assert_eq!(batch.lengths, vec![64, 64]);
+        assert_eq!(
+            batch.events,
+            vec![(3, [0x90, 60, 100]), (74, [0x80, 60, 0])],
+            "the second block's note is 64 frames later in the batch"
+        );
+        // A block never carries more events than its slot holds.
+        let many: Vec<BlockEvent> = (0..300).map(|i| (i, [0xb0, 1, 1])).collect();
+        worker.push_with_events(&[0.0; 64], &[0.0; 64], &many);
+        let (_, _, events) = worker.next_input(&mut next).unwrap();
+        assert_eq!(events.len(), SLOT_EVENTS);
+    }
+
+    #[test]
+    fn instruments_are_told_apart_from_effects() {
+        assert!(is_instrument("Instrument|Synth", 0, true));
+        assert!(is_instrument("instrument, sampler", 2, false));
+        assert!(is_instrument("", 0, true), "MIDI in and no audio in");
+        assert!(!is_instrument("Fx|Delay", 2, false));
     }
 
     #[test]
@@ -1439,7 +1522,7 @@ mod tests {
         }
         let mut next = 1;
         for seq in 1..=blocks {
-            let (left, _) = worker.next_input(&mut next).unwrap();
+            let (left, _, _) = worker.next_input(&mut next).unwrap();
             assert_eq!(next, seq as u64);
             assert_eq!(left, [seq as f32; 64]);
             next += 1;

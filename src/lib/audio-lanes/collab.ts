@@ -21,6 +21,7 @@ import {
   normalizeClip,
 } from "@/lib/audio-lanes/model";
 import { MAX_MARKERS, MAX_MARKER_NAME, MAX_REGIONS } from "@/lib/audio-lanes/markers";
+import { MAX_CC_PER_CLIP, MAX_NOTES_PER_CLIP, MAX_PADS } from "@/lib/audio-lanes/midi";
 import { isTrackColor } from "@/lib/score/track-colors";
 import type {
   AudioTake,
@@ -33,6 +34,8 @@ import type {
   AudioMarker,
   AudioRegion,
   AudioSource,
+  MidiCc,
+  MidiNote,
   SyncPoint,
 } from "@/lib/tauri";
 
@@ -46,6 +49,8 @@ export const SHARED_LANE_FIELDS = [
   "group",
   "semitones",
   "cents",
+  "kind",
+  "instrument",
 ] as const;
 
 /** What stays with each player (documented here once; the diff never looks at them). */
@@ -86,6 +91,19 @@ export type AudioOp =
   | { t: "a-lane-del"; id: string }
   | { t: "a-lane-order"; ids: string[] }
   | { t: "a-clip-set"; lane: string; clip: AudioClip }
+  /**
+   * Events of a MIDI clip's take that did not fit in its `a-clip-set` (sent right after it):
+   * `first` replaces the take's events, the next parts add to them.
+   */
+  | {
+      t: "a-midi-notes";
+      lane: string;
+      clip: string;
+      take: number;
+      first: boolean;
+      notes: MidiNote[];
+      cc: MidiCc[];
+    }
   | { t: "a-clip-del"; lane: string; id: string }
   | { t: "a-sync-set"; point: SyncPoint }
   | { t: "a-sync-del"; bar: number; beat: number }
@@ -110,6 +128,10 @@ export const MAX_LANE_NAME = 120;
 export const MAX_SOURCE_NAME = 200;
 /** A clip bigger than this (as JSON) is not shared (its gain envelope or stretch markers are huge). */
 export const MAX_CLIP_JSON = 8_000;
+/** A MIDI lane's instrument bigger than this (as JSON) is not shared (a pad bank of 128 pads fits). */
+export const MAX_INSTRUMENT_JSON = 48_000;
+/** How big one part of a MIDI clip's events may be (as JSON), below {@link MAX_CLIP_JSON}. */
+const MIDI_PART_JSON = 7_000;
 
 /** JSON with the keys of every object in order, so two equal values compare equal whatever order they were built in. */
 const stable = (value: unknown): string =>
@@ -154,6 +176,48 @@ function sharedClip(clip: AudioClip): AudioClip {
     : clip;
 }
 
+/**
+ * The operations that send a clip: one `a-clip-set`, and for a MIDI clip too big for one message,
+ * its events in parts after it (`a-midi-notes`), each small enough for one message.
+ */
+function clipOps(lane: string, clip: AudioClip): AudioOp[] {
+  const shared = sharedClip(clip);
+  if (!shared.midi || JSON.stringify(shared).length <= MAX_CLIP_JSON) {
+    return [{ t: "a-clip-set", lane, clip: shared }];
+  }
+  const empty = {
+    ...shared,
+    midi: { takes: shared.midi.takes.map(() => ({ notes: [], cc: [] })) },
+  };
+  const ops: AudioOp[] = [{ t: "a-clip-set", lane, clip: empty }];
+  shared.midi.takes.forEach((take, index) => {
+    let part = { notes: [] as MidiNote[], cc: [] as MidiCc[] };
+    let size = 0;
+    let first = true;
+    const flush = () => {
+      if (part.notes.length === 0 && part.cc.length === 0) return;
+      ops.push({ t: "a-midi-notes", lane, clip: clip.id, take: index, first, ...part });
+      first = false;
+      part = { notes: [], cc: [] };
+      size = 0;
+    };
+    for (const note of take.notes) {
+      const length = JSON.stringify(note).length + 1;
+      if (size + length > MIDI_PART_JSON) flush();
+      part.notes.push(note);
+      size += length;
+    }
+    for (const cc of take.cc) {
+      const length = JSON.stringify(cc).length + 1;
+      if (size + length > MIDI_PART_JSON) flush();
+      part.cc.push(cc);
+      size += length;
+    }
+    flush();
+  });
+  return ops;
+}
+
 const SOURCE_ID = /^[0-9a-f]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,80}$/;
 /** Ids that name something on every object (never a lane, clip or marker of anyone). */
@@ -183,9 +247,7 @@ export function diffAudio(prev: AudioLanesSettings, next: AudioLanesSettings): A
     if (!before) {
       ops.push({ t: "a-lane-add", lane: sharedLane(lane), at });
       // The clips follow one by one: a lane with many clips would not fit in one message.
-      for (const clip of lane.clips) {
-        ops.push({ t: "a-clip-set", lane: lane.id, clip: sharedClip(clip) });
-      }
+      for (const clip of lane.clips) ops.push(...clipOps(lane.id, clip));
       return;
     }
     const was = sharedFields(before);
@@ -203,9 +265,7 @@ export function diffAudio(prev: AudioLanesSettings, next: AudioLanesSettings): A
       if (!nextClips.has(clip.id)) ops.push({ t: "a-clip-del", lane: lane.id, id: clip.id });
     }
     for (const clip of lane.clips) {
-      if (!same(prevClips.get(clip.id), clip)) {
-        ops.push({ t: "a-clip-set", lane: lane.id, clip: sharedClip(clip) });
-      }
+      if (!same(prevClips.get(clip.id), clip)) ops.push(...clipOps(lane.id, clip));
     }
   });
   // The order only matters among lanes both ends have: say it when it changed.
@@ -258,10 +318,14 @@ function diffById<T extends { id: string }>(
 
 /** The shared fields another player sent, put on `base` (which keeps its personal side and its clips). */
 function withShared(base: AudioLane, shared: SharedLane): AudioLane {
-  const { parent, ...rest } = sharedFields(shared as AudioLane);
+  const { parent, kind, instrument, ...rest } = sharedFields(shared as AudioLane);
   const lane = { ...base, ...rest } as AudioLane;
   if (parent === undefined) delete lane.parent;
   else lane.parent = parent;
+  if (kind) lane.kind = kind;
+  else delete lane.kind;
+  if (instrument) lane.instrument = instrument;
+  else delete lane.instrument;
   return lane;
 }
 
@@ -335,8 +399,10 @@ export function applyAudioOps(
           SHARED_LANE_FIELDS.filter((key) => key in op.set).map((key) => [key, op.set[key]]),
         );
         const lane = { ...lanes[i]!, ...picked } as AudioLane;
-        // "No folder" travels as null.
+        // "No folder", "an audio lane" and "the default sound" travel as null.
         if ("parent" in op.set && !op.set.parent) delete lane.parent;
+        if ("kind" in op.set && !op.set.kind) delete lane.kind;
+        if ("instrument" in op.set && !op.set.instrument) delete lane.instrument;
         lanes[i] = lane;
         break;
       }
@@ -363,6 +429,24 @@ export function applyAudioOps(
           ? lane.clips.map((c) => (c.id === op.clip.id ? op.clip : c))
           : [...lane.clips, op.clip];
         lanes[i] = { ...lane, clips };
+        break;
+      }
+      case "a-midi-notes": {
+        const i = laneAt(op.lane);
+        const clip = lanes[i]?.clips.find((c) => c.id === op.clip);
+        if (!clip?.midi || !clip.midi.takes[op.take]) break;
+        const takes = clip.midi.takes.map((take, index) =>
+          index !== op.take
+            ? take
+            : op.first
+              ? { notes: op.notes, cc: op.cc }
+              : { notes: [...take.notes, ...op.notes], cc: [...take.cc, ...op.cc] },
+        );
+        const updated = { ...clip, midi: { takes } };
+        lanes[i] = {
+          ...lanes[i]!,
+          clips: lanes[i]!.clips.map((c) => (c.id === op.clip ? updated : c)),
+        };
         break;
       }
       case "a-clip-del": {
@@ -458,7 +542,72 @@ function validClip(c: unknown): c is AudioClip {
     Array.isArray(c.stretch) &&
     c.stretch.length <= 200 &&
     c.stretch.every((m) => isObject(m) && isNum(m.sourceMs) && isNum(m.clipMs)) &&
-    (c.groupId === undefined || isId(c.groupId))
+    (c.groupId === undefined || isId(c.groupId)) &&
+    (c.midi === undefined || validMidi(c.midi, (c.takes as unknown[]).length))
+  );
+}
+
+function validNote(n: unknown): n is MidiNote {
+  return (
+    isObject(n) &&
+    isId(n.id) &&
+    inMs(n.startMs) &&
+    inMs(n.lenMs) &&
+    isNum(n.pitch) &&
+    isNum(n.vel) &&
+    isNum(n.chan) &&
+    (n.rawStartMs === undefined || isNum(n.rawStartMs)) &&
+    (n.rawLenMs === undefined || isNum(n.rawLenMs)) &&
+    (n.muted === undefined || isBool(n.muted))
+  );
+}
+
+function validCc(c: unknown): c is MidiCc {
+  return (
+    isObject(c) &&
+    inMs(c.atMs) &&
+    (c.kind === "cc" || c.kind === "bend" || c.kind === "pressure" || c.kind === "program") &&
+    (c.cc === undefined || isNum(c.cc)) &&
+    isNum(c.value) &&
+    isNum(c.chan)
+  );
+}
+
+function validEvents(notes: unknown, cc: unknown): boolean {
+  return (
+    Array.isArray(notes) &&
+    notes.length <= MAX_NOTES_PER_CLIP &&
+    notes.every(validNote) &&
+    Array.isArray(cc) &&
+    cc.length <= MAX_CC_PER_CLIP &&
+    cc.every(validCc)
+  );
+}
+
+function validMidi(m: unknown, takes: number): boolean {
+  return (
+    isObject(m) &&
+    Array.isArray(m.takes) &&
+    m.takes.length === takes &&
+    m.takes.every((t) => isObject(t) && validEvents(t.notes, t.cc))
+  );
+}
+
+const INSTRUMENT_TYPES: readonly string[] = ["soundfont", "drums", "kit", "pads", "plugin"];
+
+function validInstrument(i: unknown): boolean {
+  if (i === null || i === undefined) return true;
+  return (
+    isObject(i) &&
+    typeof i.type === "string" &&
+    INSTRUMENT_TYPES.includes(i.type) &&
+    JSON.stringify(i).length <= MAX_INSTRUMENT_JSON &&
+    (i.type !== "pads" ||
+      (Array.isArray(i.pads) &&
+        i.pads.length <= MAX_PADS &&
+        i.pads.every(
+          (p) => isObject(p) && isNum(p.key) && (p.sourceId === undefined || isStr(p.sourceId, 80)),
+        )))
   );
 }
 
@@ -475,7 +624,9 @@ function validLaneFields(f: Record<string, unknown>, complete: boolean): boolean
     need("folder", isBool(f.folder)) &&
     need("group", isNum(f.group)) &&
     need("semitones", isNum(f.semitones)) &&
-    need("cents", isNum(f.cents))
+    need("cents", isNum(f.cents)) &&
+    ("kind" in f ? f.kind === null || f.kind === undefined || f.kind === "midi" : true) &&
+    ("instrument" in f ? validInstrument(f.instrument) : true)
   );
 }
 
@@ -521,8 +672,30 @@ function cleanClip(c: AudioClip): AudioClip {
     stretch: c.stretch.map((m) =>
       pick<StretchMarker>(m as unknown as Record<string, unknown>, ["sourceMs", "clipMs"]),
     ),
+    ...(c.midi && {
+      midi: {
+        takes: c.midi.takes.map((t) => ({ notes: t.notes.map(cleanNote), cc: t.cc.map(cleanCc) })),
+      },
+    }),
   };
 }
+
+const NOTE_KEYS = [
+  "id",
+  "startMs",
+  "lenMs",
+  "pitch",
+  "vel",
+  "chan",
+  "rawStartMs",
+  "rawLenMs",
+  "muted",
+];
+const CC_KEYS = ["atMs", "kind", "cc", "value", "chan"];
+const cleanNote = (n: MidiNote): MidiNote =>
+  pick<MidiNote>(n as unknown as Record<string, unknown>, NOTE_KEYS);
+const cleanCc = (c: MidiCc): MidiCc =>
+  pick<MidiCc>(c as unknown as Record<string, unknown>, CC_KEYS);
 
 /** A checked operation rebuilt from the keys it has (the same check passed it). */
 function cleanOp(op: Record<string, unknown>): AudioOp {
@@ -548,6 +721,16 @@ function cleanOp(op: Record<string, unknown>): AudioOp {
       return { t: "a-lane-order", ids: [...(op.ids as string[])] };
     case "a-clip-set":
       return { t: "a-clip-set", lane: op.lane as string, clip: cleanClip(op.clip as AudioClip) };
+    case "a-midi-notes":
+      return {
+        t: "a-midi-notes",
+        lane: op.lane as string,
+        clip: op.clip as string,
+        take: op.take as number,
+        first: op.first as boolean,
+        notes: (op.notes as MidiNote[]).map(cleanNote),
+        cc: (op.cc as MidiCc[]).map(cleanCc),
+      };
     case "a-clip-del":
       return { t: "a-clip-del", lane: op.lane as string, id: op.id as string };
     case "a-sync-set":
@@ -621,6 +804,17 @@ export function validAudioOps(raw: readonly unknown[]): AudioOp[] | null {
         break;
       case "a-clip-set":
         ok = isId(op.lane) && validClip(op.clip);
+        break;
+      case "a-midi-notes":
+        ok =
+          isId(op.lane) &&
+          isId(op.clip) &&
+          isNum(op.take) &&
+          op.take >= 0 &&
+          op.take < MAX_TAKES &&
+          isBool(op.first) &&
+          validEvents(op.notes, op.cc) &&
+          JSON.stringify(op).length <= MAX_CLIP_JSON + 200;
         break;
       case "a-clip-del":
         ok = isId(op.lane) && isId(op.id);

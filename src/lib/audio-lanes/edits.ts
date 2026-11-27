@@ -1,3 +1,4 @@
+import { activeMidiTake, mergeTakes, sliceTake, withActiveTake } from "@/lib/audio-lanes/midi";
 import {
   CUT_FADE_MS,
   MAX_LANES,
@@ -9,7 +10,7 @@ import {
   newLane,
   normalizeClip,
 } from "@/lib/audio-lanes/model";
-import type { AudioClip, AudioLane, AudioLanesSettings, AudioSource } from "@/lib/tauri";
+import type { AudioClip, AudioLane, AudioLanesSettings, AudioSource, MidiTake } from "@/lib/tauri";
 
 type Audio = AudioLanesSettings;
 
@@ -92,8 +93,9 @@ export function addSource(audio: Audio, source: AudioSource): Audio {
 
 /** Puts a clip on a lane. */
 export function addClip(audio: Audio, laneId: string, clip: AudioClip): Audio {
+  // A clip only goes on a lane of its kind (MIDI clips on MIDI lanes, audio on audio lanes).
   return mapLanes(audio, (l) =>
-    l.id === laneId && !l.folder
+    l.id === laneId && !l.folder && (l.kind === "midi") === (clip.midi !== undefined)
       ? withCrossfades({ ...l, clips: sortClips([...l.clips, normalizeClip(clip)]) })
       : l,
   );
@@ -241,6 +243,15 @@ function envelopeAt(points: AudioClip["envelope"], x: number): number {
  * A stretched clip gets the playrate that keeps the part's length on the timeline.
  */
 export function sliceClip(c: AudioClip, from: number, to: number, id: string = c.id): AudioClip {
+  if (c.midi) {
+    return {
+      ...c,
+      id,
+      startMs: c.startMs + from,
+      lengthMs: to - from,
+      midi: { takes: c.midi.takes.map((t) => sliceTake(t, from, to)) },
+    };
+  }
   const duration = clipDuration(c);
   const sa = clipSourceAt(c, from);
   const sb = clipSourceAt(c, to);
@@ -279,6 +290,18 @@ export function trimClip(audio: Audio, clipId: string, edge: "start" | "end", at
   if (!found || found.clip.locked) return audio;
   const c = found.clip;
   const duration = clipDuration(c);
+  if (c.midi) {
+    // A MIDI clip has no file to run out of: it grows to the timeline start or any length.
+    const sliced =
+      edge === "end"
+        ? sliceClip(c, 0, Math.max(atMs - c.startMs, MIN_CLIP_MS))
+        : sliceClip(
+            c,
+            Math.max(Math.min(atMs - c.startMs, duration - MIN_CLIP_MS), -c.startMs),
+            duration,
+          );
+    return updateClip(audio, clipId, { ...sliced, id: c.id });
+  }
   const offset = Math.min(...c.takes.map((t) => t.offsetMs));
   // How far the clip can grow before its file runs out at the front (the file's end is unknown).
   const room = offset / c.playrate;
@@ -320,6 +343,13 @@ export function splitClip(
   const left = sliceClip(c, 0, at, ids[0]);
   const right = sliceClip(c, at, duration, ids[1]);
   if (left.lengthMs < MIN_CLIP_MS || right.lengthMs < MIN_CLIP_MS) return audio;
+  if (c.midi) {
+    return mapLanes(audio, (l) =>
+      l.id === found.lane.id
+        ? { ...l, clips: sortClips([...l.clips.filter((x) => x.id !== clipId), left, right]) }
+        : l,
+    );
+  }
   const cut = (ms: number) => ({ ms: Math.min(CUT_FADE_MS, ms), shape: "equalPower" as const });
   return mapLanes(audio, (l) =>
     l.id === found.lane.id
@@ -340,6 +370,17 @@ export function splitClip(
  * in the file (going backwards for reversed clips), with the same settings and no stretch markers.
  */
 function continues(a: AudioClip, b: AudioClip): boolean {
+  if (a.midi || b.midi) {
+    // MIDI clips glue across gaps (the joined clip spans both), one take each.
+    return (
+      a.midi !== undefined &&
+      b.midi !== undefined &&
+      a.takes.length === 1 &&
+      b.takes.length === 1 &&
+      a.locked === b.locked &&
+      b.startMs >= a.startMs
+    );
+  }
   const ta = activeTake(a);
   const tb = activeTake(b);
   const sameSettings =
@@ -364,6 +405,16 @@ function continues(a: AudioClip, b: AudioClip): boolean {
 
 /** One clip from two that continue each other (fades from the outer ends, both envelopes). */
 function joined(a: AudioClip, b: AudioClip): AudioClip {
+  if (a.midi && b.midi) {
+    const offset = b.startMs - a.startMs;
+    return {
+      ...a,
+      lengthMs: Math.max(a.lengthMs, offset + b.lengthMs),
+      take: 0,
+      takes: [activeTake(a)],
+      midi: { takes: [mergeTakes(activeMidiTake(a), activeMidiTake(b), offset)] },
+    };
+  }
   const lengthMs = a.lengthMs + b.lengthMs;
   const share = a.lengthMs / lengthMs;
   const points = (c: AudioClip) =>
@@ -452,6 +503,8 @@ export function pasteClips(
  * every edit, so they go when the overlap goes; fades the user set are kept when longer.
  */
 export function withCrossfades(lane: AudioLane): AudioLane {
+  // MIDI clips have no audio to fade: overlapping clips simply play both.
+  if (lane.kind === "midi") return lane;
   const clips = lane.clips.map((c) => ({
     ...c,
     fadeIn: c.fadeIn.auto ? NO_FADE : c.fadeIn,
@@ -474,9 +527,28 @@ export function withCrossfades(lane: AudioLane): AudioLane {
 /** Adds a take to a clip (a loop recording pass) and makes it the one heard. */
 export function addTake(audio: Audio, clipId: string, take: AudioClip["takes"][number]): Audio {
   const found = findClip(audio, clipId);
-  if (!found) return audio;
+  if (!found || found.clip.midi) return audio;
   const takes = [...found.clip.takes, take];
   return updateClip(audio, clipId, { takes, take: takes.length - 1 });
+}
+
+/** Adds a pass of MIDI events to a MIDI clip as a new take and makes it the one heard. */
+export function addMidiTake(audio: Audio, clipId: string, name: string, take: MidiTake): Audio {
+  const found = findClip(audio, clipId);
+  if (!found?.clip.midi) return audio;
+  const takes = [...found.clip.takes, { name, sourceId: "", offsetMs: 0 }];
+  return updateClip(audio, clipId, {
+    takes,
+    take: takes.length - 1,
+    midi: { takes: [...found.clip.midi.takes, take] },
+  });
+}
+
+/** Replaces the events of the take a MIDI clip plays (one note edit, quantize, record pass). */
+export function setMidiTake(audio: Audio, clipId: string, take: MidiTake): Audio {
+  const found = findClip(audio, clipId);
+  if (!found?.clip.midi) return audio;
+  return updateClip(audio, clipId, { midi: withActiveTake(found.clip, take).midi });
 }
 
 /** Picks which take a clip plays (comping: split the clip, then pick a take for each piece). */

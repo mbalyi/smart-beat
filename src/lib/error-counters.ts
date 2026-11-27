@@ -61,7 +61,7 @@ const UNCOUNTED = new Set([
 /** Command-name prefixes (and exact names) per area; the first match wins. */
 const AREA_RULES: ReadonlyArray<readonly [ErrorArea, RegExp]> = [
   ["plugin", /^(plugins?_|audio_plugin_)/],
-  ["audio", /^(audio_|library_|soundfonts_|kits_)/],
+  ["audio", /^(audio_|library_|soundfonts_|kits_|midi_)/],
   ["export", /^export_/],
   ["cloud", /^(cloud_|list_cloud_|stems_cloud_)|cloud_folder/],
   ["stems", /^(stems_|umx_model_|stem_model_)/],
