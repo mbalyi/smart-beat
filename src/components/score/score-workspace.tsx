@@ -22,6 +22,7 @@ import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 
 import { LaneDropHighlight } from "@/components/audio-lanes/lane-drop-highlight";
 import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes/lane-editor-dock";
+import { MidiEditor } from "@/components/midi/midi-editor";
 import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
 import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { StudioView } from "@/components/audio-lanes/studio-view";
@@ -3909,6 +3910,7 @@ export function ScoreWorkspace({
                     lanes,
                     grid: laneGrid,
                     onAdd: () => lanes.commands.addLane(),
+                    onAddMidi: () => setEditorLaneId(lanes.commands.addMidiLane()),
                     onImport: () => void addAudioLane(),
                     onRecord: () => setRecordAudioOpen(true),
                     onEffects: (laneIndex) => openPedalboard({ lane: laneIndex }),
@@ -3934,7 +3936,18 @@ export function ScoreWorkspace({
             }
           />
         )}
-        {editorLane && !studioOpen && (
+        {editorLane && !studioOpen && editorLane.kind === "midi" && (
+          <MidiEditor
+            lanes={lanes}
+            lane={editorLane}
+            index={lanes.audio.lanes.indexOf(editorLane)}
+            grid={laneGrid}
+            playhead={playhead}
+            onClose={() => setEditorLaneId(null)}
+            onEffects={(laneIndex) => openPedalboard({ lane: laneIndex })}
+          />
+        )}
+        {editorLane && !studioOpen && editorLane.kind !== "midi" && (
           <LaneEditorDock
             lanes={lanes}
             lane={editorLane}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { isDrumLane } from "@/lib/midi-editor/controllers";
 
 import { dropCopyOrSlip } from "@/components/audio-lanes/clip-copy-slip";
 import { ClipView, type ClipDrag } from "@/components/audio-lanes/clip-view";
@@ -351,6 +352,7 @@ export function EditorTimeline({
               key={clip.id}
               clip={clip}
               laneName={lane.name}
+              drums={isDrumLane(lane)}
               color={color}
               info={lanes.infos.get(clip.takes[clip.take]?.sourceId ?? "")}
               missing={clip.takes.some((t) => lanes.missing.has(t.sourceId))}

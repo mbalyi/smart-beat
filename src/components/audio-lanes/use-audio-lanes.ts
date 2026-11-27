@@ -33,6 +33,7 @@ import {
   pasteClips,
   removeClips,
   splitClip,
+  updateLane,
 } from "@/lib/audio-lanes/edits";
 import {
   MAX_LANES,
@@ -41,6 +42,8 @@ import {
   clipEndMs,
   newClip,
   newLane,
+  newMidiClip,
+  newMidiLane,
 } from "@/lib/audio-lanes/model";
 import {
   clipLaneIds,
@@ -65,6 +68,7 @@ import {
   type AudioLane,
   type AudioLanesSettings,
   type AudioSource,
+  type LaneInstrument,
   type MixerSettings,
   type SourceInfo,
   type SourceLocation,
@@ -651,8 +655,30 @@ export function useAudioLanes(options: AudioLanesOptions) {
     const onRange = (edit: (a: AudioLanesSettings, range: TimeRange) => AudioLanesSettings) => {
       if (timeRange) apply((a) => edit(a, timeRange));
     };
+    /** A new MIDI clip's length: four bars at the position line. */
+    const midiClipMs = () => 4 * gridStepMs(grid, lineMs(), true);
     return {
       addLane: () => apply((a) => addLane(a)),
+      /**
+       * Adds a MIDI lane (ADR 0006) with an empty four-bar clip at the position line, to draw
+       * into or record onto. Returns the new lane's id.
+       */
+      addMidiLane: (instrument?: LaneInstrument) => {
+        const count = audioRef.current.lanes.filter((l) => l.kind === "midi").length;
+        const lane = newMidiLane(`MIDI ${count + 1}`, instrument);
+        const clip = newMidiClip("MIDI clip", lineMs(), midiClipMs());
+        apply((a) => addClip(addLane(a, lane), lane.id, clip));
+        return lane.id;
+      },
+      /** Adds an empty MIDI clip on a MIDI lane (default: four bars at the position line). */
+      addMidiClip: (laneId: string, atMs: number = lineMs(), lengthMs: number = midiClipMs()) => {
+        const clip = newMidiClip("MIDI clip", atMs, lengthMs);
+        apply((a) => addClip(a, laneId, clip));
+        return clip.id;
+      },
+      /** Changes what a MIDI lane sounds with. */
+      setInstrument: (laneId: string, instrument: LaneInstrument) =>
+        apply((a) => updateLane(a, laneId, { instrument })),
       /** Splits the clips crossing either edge of the time selection. */
       splitTimeRange: () => onRange((a, r) => splitAtRangeEdges(a, rangeTargets(), r)),
       /** Keeps only the parts of the clips inside the time selection. */

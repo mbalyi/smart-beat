@@ -802,6 +802,18 @@ export async function pickScoreFile(): Promise<string | null> {
   });
 }
 
+/** Shows the native Open dialog for a MIDI file (onto a MIDI lane). */
+export async function pickMidiFile(): Promise<string | null> {
+  if (!isTauri()) throw new NotInDesktopAppError();
+  const picked = await openDialog({
+    title: "Import a MIDI file",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "MIDI files", extensions: ["mid", "midi"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
 /** What the native Save dialog offers. */
 export interface SaveFilter {
   name: string;
@@ -1963,6 +1975,8 @@ export interface ScannedPlugin {
   vendor: string;
   version: string;
   hasGui: boolean;
+  /** An instrument (it plays notes): one a MIDI lane can sound with. */
+  instrument?: boolean;
 }
 
 /** Mirrors `PluginScanReport` in `src-tauri/src/audio/plugin.rs`. */
