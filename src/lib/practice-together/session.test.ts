@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { decode, encode, type Command } from "@/lib/practice-together/protocol";
-import { Session, type SessionHooks, type SessionOptions } from "@/lib/practice-together/session";
+import { decode, encode, type Command, type Message } from "@/lib/practice-together/protocol";
+import {
+  REFRESH_PINGS,
+  Session,
+  type SessionHooks,
+  type SessionOptions,
+} from "@/lib/practice-together/session";
 import {
   dropPair,
   memoryPair,
@@ -164,9 +169,10 @@ describe("connecting", () => {
 describe("scheduled commands", () => {
   it("starts both apps at the same session time", async () => {
     const { host, guest } = await connect(3);
+    const issued = performance.now();
     const result = await Promise.all([
       host.session.command(cmd({ tick: 960 })),
-      vi.advanceTimersByTimeAsync(50),
+      vi.advanceTimersByTimeAsync(500),
     ]).then(([r]) => r);
     expect(result).toBe("started");
     expect(host.hooks.scheduled).toHaveLength(1);
@@ -178,7 +184,7 @@ describe("scheduled commands", () => {
     const hostClock = h.localAt;
     const guestClock = g.localAt - 7_000;
     expect(Math.abs(hostClock - guestClock)).toBeLessThan(3);
-    expect(hostClock).toBeGreaterThan(performance.now() - 50);
+    expect(hostClock).toBeGreaterThan(issued);
   });
 
   it("uses a lead time that follows the network", async () => {
@@ -232,6 +238,8 @@ describe("a guest's requests", () => {
     const asked: [string, number | undefined][] = [];
     host.hooks.request = (action, tick) => asked.push([action, tick]);
     expect(guest.session.request("play")).toBe(true);
+    // Play goes after a few quick pings (#258); the others at once.
+    await vi.advanceTimersByTimeAsync(500);
     expect(guest.session.request("seek", 3840)).toBe(true);
     expect(guest.session.request("pause")).toBe(true);
     expect(guest.session.request("stop")).toBe(true);
@@ -242,6 +250,16 @@ describe("a guest's requests", () => {
       ["pause", undefined],
       ["stop", undefined],
     ]);
+  });
+
+  it("drop a Play still on its way when a Stop is asked for right after it (#258)", async () => {
+    const { host, guest } = await connect();
+    const asked: string[] = [];
+    host.hooks.request = (action) => asked.push(action);
+    guest.session.request("play");
+    guest.session.request("stop");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(asked).toEqual(["stop"]);
   });
 
   it("cannot be made before the clocks are in sync, or by the host", async () => {
@@ -399,5 +417,269 @@ describe("quality setting", () => {
   it("auto follows the measurements", async () => {
     const { host } = await connect(1, undefined, { quality: "auto" });
     expect(host.session.snapshot.preset).toBe("tight");
+  });
+});
+
+/** The types of the messages each end hears from the other, as they arrive. */
+function listen(pair: [PeerTransport, PeerTransport]) {
+  const fromHost: Message[] = [];
+  const fromGuest: Message[] = [];
+  pair[1].onFrame((text) => {
+    const msg = decode(text)?.msg;
+    if (msg) fromHost.push(msg);
+  });
+  pair[0].onFrame((text) => {
+    const msg = decode(text)?.msg;
+    if (msg) fromGuest.push(msg);
+  });
+  const types = (list: Message[]) => list.map((m) => m.type);
+  return {
+    fromHost,
+    fromGuest,
+    types,
+    clear() {
+      fromHost.length = 0;
+      fromGuest.length = 0;
+    },
+  };
+}
+
+describe("while a song plays (#258)", () => {
+  it("sends no pings, reports or positions, and measures again once it stops", async () => {
+    const { pair, host, guest } = await connect();
+    host.hooks.position = () => ({ pos: 1_000, playing: true });
+    const wire = listen(pair);
+    host.session.setPlaying(true);
+    guest.session.setPlaying(true);
+    // A ping timer already set may still fire once; after that the line is quiet.
+    await vi.advanceTimersByTimeAsync(5_000);
+    wire.clear();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(wire.types(wire.fromHost)).toEqual([]);
+    expect(wire.types(wire.fromGuest)).toEqual([]);
+
+    host.session.setPlaying(false);
+    guest.session.setPlaying(false);
+    await vi.advanceTimersByTimeAsync(300);
+    // A few quick pings right away, from both ends.
+    expect(wire.types(wire.fromHost).filter((t) => t === "ping").length).toBeGreaterThanOrEqual(
+      REFRESH_PINGS,
+    );
+    expect(wire.types(wire.fromGuest).filter((t) => t === "ping").length).toBeGreaterThanOrEqual(
+      REFRESH_PINGS,
+    );
+    expect(host.session.snapshot.phase).toBe("synchronized");
+  });
+
+  it("keeps measuring a guest that joined during the song until it is in sync", async () => {
+    const pair = memoryPair({ up: 2, down: 2 });
+    const host = side(pair[0], "host");
+    const guest = side(pair[1], "guest", { clockOffset: 7_000 });
+    host.session.setPlaying(true);
+    guest.session.setPlaying(true);
+    host.session.start();
+    guest.session.start();
+    openPair(pair);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(host.session.snapshot.phase).toBe("synchronized");
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+  });
+
+  it("goes quiet on the guest when a Play arrives, before its player says it plays", async () => {
+    const { pair, host, guest } = await connect();
+    await Promise.all([host.session.command(cmd()), vi.advanceTimersByTimeAsync(500)]);
+    expect(guest.hooks.scheduled).toHaveLength(1);
+    const wire = listen(pair);
+    await vi.advanceTimersByTimeAsync(5_000);
+    wire.clear();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(wire.types(wire.fromGuest)).not.toContain("ping");
+  });
+
+  it("brings the clocks up to date with a few quick pings before a Play's lead time", async () => {
+    const { pair, host } = await connect();
+    const wire = listen(pair);
+    const started = host.session.command(cmd());
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await started).toBe("started");
+    const sent = wire.types(wire.fromHost);
+    const command = sent.indexOf("cmd");
+    expect(command).toBeGreaterThan(-1);
+    expect(sent.slice(0, command).filter((t) => t === "ping")).toHaveLength(REFRESH_PINGS);
+    // The pongs came back before the command went out.
+    const pongs = wire.fromGuest.filter((m) => m.type === "pong").length;
+    expect(pongs).toBeGreaterThanOrEqual(REFRESH_PINGS);
+  });
+
+  it("does not take a long stall during the song for a sleep", async () => {
+    const { host, guest } = await connect();
+    host.session.setPlaying(true);
+    guest.session.setPlaying(true);
+    const problems: (string | undefined)[] = [];
+    guest.session.subscribe((st) => problems.push(st.problem?.kind));
+    host.session.subscribe((st) => problems.push(st.problem?.kind));
+    const real = performance.now.bind(performance);
+    let stalled = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => real() + stalled);
+    stalled = 60_000;
+    vi.setSystemTime(Date.now() + 60_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(problems).not.toContain("woke");
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+    // Stopping starts the timers afresh: the stall is not counted then either.
+    guest.session.setPlaying(false);
+    host.session.setPlaying(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(problems).not.toContain("woke");
+  });
+
+  it("keeps the clock and stays in sync when the connection comes back during the song", async () => {
+    const { pair, host, guest } = await connect();
+    host.session.setPlaying(true);
+    guest.session.setPlaying(true);
+    dropPair(pair);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(guest.session.snapshot.phase).toBe("reconnecting");
+    const wire = listen(pair);
+    const phases: string[] = [];
+    guest.session.subscribe((st) => phases.push(st.phase));
+    host.session.subscribe((st) => phases.push(st.phase));
+    openPair(pair);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+    expect(host.session.snapshot.phase).toBe("synchronized");
+    expect(guest.session.snapshot.problem).toBeNull();
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Never back to syncing while the song plays, and nothing measured.
+    expect(phases).not.toContain("syncing");
+    expect(wire.types(wire.fromHost)).not.toContain("ping");
+    expect(wire.types(wire.fromGuest)).not.toContain("ping");
+    // A Stop still reaches the guest and acts there.
+    host.session.halt({ ...cmd({ action: "stop" }), id: 99, at: 0 });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(guest.hooks.scheduled.map((s) => s.cmd.action)).toContain("stop");
+    // Once the song stops, the clocks are synced again from scratch.
+    guest.session.setPlaying(false);
+    host.session.setPlaying(false);
+    expect(phases).toContain("syncing");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(guest.session.snapshot.phase).toBe("synchronized");
+    expect(host.session.snapshot.phase).toBe("synchronized");
+  });
+});
+
+describe("pause and stop (#258)", () => {
+  it("act on the guest at once, with no lead time and no answer", async () => {
+    const { pair, host, guest } = await connect();
+    const wire = listen(pair);
+    host.session.halt({ ...cmd({ action: "stop" }), id: 7, at: 0 });
+    await vi.advanceTimersByTimeAsync(10);
+    const stop = guest.hooks.scheduled.find((s) => s.cmd.action === "stop")!;
+    expect(stop).toBeDefined();
+    // Right when it arrived (2 ms on the wire), on the guest's own clock.
+    expect(Math.abs(stop.localAt - (performance.now() + 7_000))).toBeLessThan(10);
+    expect(guest.hooks.prepared.map((c) => c.action)).not.toContain("stop");
+    expect(wire.types(wire.fromGuest)).not.toContain("ready");
+    // The host stops at once too.
+    expect(host.hooks.scheduled.map((s) => s.cmd.action)).toContain("stop");
+  });
+
+  it("act on a guest whose clocks are being synced again", async () => {
+    const { pair, host, guest } = await connect();
+    dropPair(pair);
+    await vi.advanceTimersByTimeAsync(100);
+    openPair(pair);
+    // Welcomed again, the clocks start over: the guest is syncing.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(guest.session.snapshot.phase).toBe("syncing");
+    host.session.halt({ ...cmd({ action: "pause" }), id: 8, at: 0 });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(guest.hooks.scheduled.map((s) => s.cmd.action)).toContain("pause");
+  });
+
+  it("call off a Play that waits for its moment on the guest", async () => {
+    const { host, guest } = await connect(3, { clockOffset: 7_000 }, { quality: "safe" });
+    const started = host.session.command(cmd());
+    await vi.advanceTimersByTimeAsync(250);
+    const play = guest.hooks.scheduled.find((s) => s.cmd.action === "play");
+    expect(play).toBeDefined();
+    // The start is still ahead when the Stop comes.
+    expect(play!.localAt).toBeGreaterThan(performance.now() + 7_000);
+    host.session.halt({ ...cmd({ action: "stop" }), id: 50, at: 0 });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(guest.hooks.cancelled).toContain(play!.cmd.id);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await started).toBe("started");
+  });
+
+  it("call off a Play the guest is still preparing", async () => {
+    const { host, guest } = await connect();
+    guest.hooks.prepare = (c) =>
+      new Promise((resolve) => {
+        guest.hooks.prepared.push(c);
+        setTimeout(() => resolve(true), 60);
+      });
+    const started = host.session.command(cmd());
+    // Past the quick pings: the guest is preparing.
+    await vi.advanceTimersByTimeAsync(170);
+    expect(guest.hooks.prepared.map((c) => c.action)).toContain("play");
+    guest.session.cancelStarts();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(guest.hooks.scheduled.map((s) => s.cmd.action)).not.toContain("play");
+    expect(await started).toBe("late");
+  });
+
+  it("call off the host's own Play that is still on its way", async () => {
+    const { host } = await connect();
+    const started = host.session.command(cmd());
+    await vi.advanceTimersByTimeAsync(20);
+    host.session.halt({ ...cmd({ action: "stop" }), id: 51, at: 0 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await started).toBe("late");
+    expect(host.hooks.scheduled.map((s) => s.cmd.action)).toEqual(["stop"]);
+  });
+
+  it("go out a lead time ahead, as before, to an app that does not know halts", async () => {
+    const pair = memoryPair({ up: 2, down: 2 });
+    const host = side(pair[0], "host");
+    host.session.start();
+    const heard: Message[] = [];
+    pair[1].onFrame((text) => {
+      const msg = decode(text)?.msg;
+      if (msg) heard.push(msg);
+    });
+    openPair(pair);
+    pair[1].send(
+      encode(
+        {
+          type: "hello",
+          name: "Old guest",
+          role: "guest",
+          caps: ["transport", "metronome", "speed", "loop", "tab"],
+          score: SCORE,
+        },
+        1,
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(50);
+    expect(heard.map((m) => m.type)).toContain("welcome");
+    const before = performance.now();
+    host.session.halt({ ...cmd({ action: "stop" }), id: 9, at: 0 });
+    await vi.advanceTimersByTimeAsync(10);
+    const sent = heard.find((m) => m.type === "cmd") as Extract<Message, { type: "cmd" }>;
+    expect(sent.cmd.at).toBeGreaterThanOrEqual(before + host.session.snapshot.leadMs);
+  });
+});
+
+describe("telling the app about changes", () => {
+  it("does not hand out a new state when nothing it shows changed", async () => {
+    const { host, guest } = await connect();
+    await vi.advanceTimersByTimeAsync(10_000);
+    let updates = 0;
+    host.session.subscribe(() => (updates += 1));
+    guest.session.subscribe(() => (updates += 1));
+    // A steady wire: every pong measures the same, so nothing new is shown.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(updates).toBe(0);
   });
 });

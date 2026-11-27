@@ -1,5 +1,6 @@
 import type { HostRoom } from "@/lib/practice-together/host-room";
 import type { Session } from "@/lib/practice-together/session";
+import type { PracticeHostAddress } from "@/lib/tauri";
 
 /**
  * Practice together across tabs: ONE live session (one connection, one clock) that moves between
@@ -8,8 +9,16 @@ import type { Session } from "@/lib/practice-together/session";
  * are in it, and what each tab's score is. The hooks do the work (see `use-practice-together.ts`).
  */
 
-/** Where two players meet: on the same network, or over the internet. */
-export type HostCodeInfo = { kind: "lan" | "internet"; code: string; address?: string };
+/**
+ * Where two players meet: on the same network, or over the internet. `others` are the codes for
+ * the host's other networks (a cable, a link-local link), shown under the main code (#258).
+ */
+export type HostCodeInfo = {
+  kind: "lan" | "internet";
+  code: string;
+  address?: string;
+  others?: PracticeHostAddress[];
+};
 
 /** A guest waiting for the host's yes. */
 export interface WaitingGuest {

@@ -31,7 +31,7 @@ export const DRIFT_LIMIT_MS = 40;
  * notes' position reports come in bursts, and one late report must not seek the lanes (a seek
  * restarts their voices). A bigger jump (a seek, a loop restart) is moved at once.
  */
-const JUMP_MS = 200;
+export const JUMP_MS = 200;
 /** After a start or a correction the lanes are left alone for this long (ms). */
 const SETTLE_MS = 600;
 /** Corrections are at least this far apart (ms). */
@@ -69,6 +69,8 @@ export class LaneFollower {
   private loop: { startMs: number; endMs: number } | null = null;
   /** The engine's last report: the song position that is heard, and when it was read. */
   private heard: { ms: number; at: number; playing: boolean } | null = null;
+  /** Only jumps are followed, not small drifts (see `setTolerant`). */
+  private tolerant = false;
 
   private readonly engine: FollowerEngine;
   private readonly options: LaneFollowerOptions;
@@ -221,6 +223,17 @@ export class LaneFollower {
     return ((((raw + length / 2) % length) + length) % length) - length / 2;
   }
 
+  /**
+   * Practice together (#258): while on, the lanes are only moved for a jump of {@link JUMP_MS} or
+   * more (a seek, a loop that restarted), not for a small drift. Every correction is a seek that
+   * restarts the lanes' voices, and the notes' position reports come in uneven bursts on a busy
+   * page; in a session a steady sound matters more than a few milliseconds.
+   */
+  setTolerant(on: boolean) {
+    this.tolerant = on;
+    this.strikes = 0;
+  }
+
   setSpeed(speed: number) {
     this.speed = speed;
     this.engine.playbackRate = speed;
@@ -268,6 +281,10 @@ export class LaneFollower {
     const lanesHeard = heard.ms + (at - heard.at) * this.speed;
     const off = Math.abs(this.difference(lanesHeard, synthHeard));
     if (off <= DRIFT_LIMIT_MS) {
+      this.strikes = 0;
+      return;
+    }
+    if (this.tolerant && off < JUMP_MS) {
       this.strikes = 0;
       return;
     }

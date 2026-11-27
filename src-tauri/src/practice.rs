@@ -14,9 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
-use std::net::{
-    IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket,
-};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -180,22 +178,6 @@ impl Room {
             token,
         })
     }
-}
-
-/// The address this computer has on the local network (the one a route to the internet would
-/// use). Nothing is sent. Falls back to loopback when there is no network.
-pub fn local_ipv4() -> Ipv4Addr {
-    UdpSocket::bind("0.0.0.0:0")
-        .and_then(|s| {
-            s.connect("192.0.2.1:9")?;
-            s.local_addr()
-        })
-        .ok()
-        .and_then(|a| match a.ip() {
-            std::net::IpAddr::V4(ip) if !ip.is_unspecified() => Some(ip),
-            _ => None,
-        })
-        .unwrap_or(Ipv4Addr::LOCALHOST)
 }
 
 // ----- frames --------------------------------------------------------------------------------
@@ -443,11 +425,11 @@ impl Link {
         });
     }
 
-    /// Starts listening on a free port. The code uses `advertise` as the host's address, and the
-    /// host listens on that address only (not on every network the computer is on) when it can.
+    /// Starts listening on a free port of every network the computer is on (#258: Wi-Fi, a cable
+    /// and a link-local link alike), with one port and one token for all of them. The code uses
+    /// `advertise` as the host's address; [`Link::code_for`] makes the code for another one.
     pub fn host(advertise: Ipv4Addr, sink: Sink) -> io::Result<Arc<Self>> {
-        let listener = TcpListener::bind((advertise, 0))
-            .or_else(|_| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)))?;
+        let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0))?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
         let room = Room {
@@ -466,6 +448,16 @@ impl Link {
     /// The room code to give to the guests.
     pub fn code(&self) -> String {
         self.room.code()
+    }
+
+    /// The room code for another address of this computer: the same port and token, so a guest
+    /// on any of the host's networks gets in with the code made for that network.
+    pub fn code_for(&self, ip: Ipv4Addr) -> String {
+        Room {
+            addr: SocketAddrV4::new(ip, self.port()),
+            token: self.room.token,
+        }
+        .code()
     }
 
     pub fn port(&self) -> u16 {
@@ -865,6 +857,7 @@ fn establish(room: &Room) -> Result<TcpStream, JoinError> {
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::error::{CommandError, ErrorKind};
+use crate::practice_network::{Candidate, NetworkKind, host_candidates, network_kind};
 
 /// Sent for each frame from the other app (payload: the text). Mirrored in `src/lib/tauri.ts`.
 pub const FRAME_EVENT: &str = "practice-frame";
@@ -933,13 +926,40 @@ fn emitter<R: Runtime>(app: AppHandle<R>) -> Sink {
 
 /// What the host shows: the code to read out and the address it stands for. `link` is the code as
 /// a `smartbeat://join/…` link, kept for later: no such scheme is registered yet, so the page
-/// shows the code and does not use the link.
+/// shows the code and does not use the link. `addresses` has one code per network the host is on
+/// (#258), best first; the first is `code`/`address`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostInfo {
     pub code: String,
     pub link: String,
     pub address: String,
+    pub addresses: Vec<HostAddress>,
+}
+
+/// One network the host can be reached on, and the code for it. Mirrored in `src/lib/tauri.ts`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostAddress {
+    /// The interface's name (`en0`, `Wi-Fi`).
+    pub name: String,
+    pub kind: NetworkKind,
+    /// `ip:port`.
+    pub address: String,
+    pub code: String,
+}
+
+/// One entry per candidate, in their order, with the code for each.
+fn host_addresses(link: &Link, candidates: &[Candidate]) -> Vec<HostAddress> {
+    candidates
+        .iter()
+        .map(|c| HostAddress {
+            name: c.name.clone(),
+            kind: network_kind(&c.name, c.ip),
+            address: format!("{}:{}", c.ip, link.port()),
+            code: link.code_for(c.ip),
+        })
+        .collect()
 }
 
 #[tauri::command(async)]
@@ -950,12 +970,16 @@ pub fn practice_host<R: Runtime>(
     // The session this replaces ends first, so its last event reaches the page before the new
     // link's first one (and the page never takes the old link's "closed" for the new one's).
     state.leave();
-    let link = Link::host(local_ipv4(), emitter(app))
+    let candidates = host_candidates();
+    // Never empty: loopback is the last resort.
+    let best = candidates.first().map_or(Ipv4Addr::LOCALHOST, |c| c.ip);
+    let link = Link::host(best, emitter(app))
         .map_err(|e| CommandError::new(ErrorKind::Network, format!("Could not listen: {e}")))?;
     let code = link.code();
     let info = HostInfo {
         link: format!("smartbeat://join/{code}"),
         address: format!("{}:{}", link.room.addr.ip(), link.port()),
+        addresses: host_addresses(&link, &candidates),
         code,
     };
     state.set(Some(link));
@@ -1098,9 +1122,23 @@ mod tests {
     }
 
     #[test]
-    fn the_local_address_is_an_ipv4_address() {
-        let ip = local_ipv4();
-        assert!(!ip.is_unspecified());
+    fn every_address_gets_a_code_with_the_same_port_and_token() {
+        let sink: Sink = Arc::new(|_| {});
+        let link = Link::host(Ipv4Addr::new(192, 168, 1, 23), sink).unwrap();
+        let candidates = [
+            Candidate::new("Wi-Fi", Ipv4Addr::new(192, 168, 1, 23)),
+            Candidate::new("Ethernet", Ipv4Addr::new(169, 254, 7, 8)),
+        ];
+        let addresses = host_addresses(&link, &candidates);
+        assert_eq!(addresses[0].code, link.code());
+        assert_eq!(addresses[0].kind, NetworkKind::Wifi);
+        assert_eq!(addresses[1].kind, NetworkKind::LinkLocal);
+        assert_eq!(addresses[1].address, format!("169.254.7.8:{}", link.port()));
+        let other = Room::parse(&addresses[1].code).unwrap();
+        assert_eq!(*other.addr.ip(), Ipv4Addr::new(169, 254, 7, 8));
+        assert_eq!(other.addr.port(), link.port());
+        assert_eq!(other.token, link.room.token);
+        link.leave();
     }
 
     fn ip(last: u8) -> IpAddr {

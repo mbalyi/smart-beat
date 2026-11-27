@@ -10,6 +10,7 @@ import { addClip, addLane, addSource } from "@/lib/audio-lanes/edits";
 import { mixFromScore } from "@/lib/score/mixer";
 import { ScorePlayer } from "@/lib/score/player";
 import { parseScore } from "@/lib/score/score";
+import { LaneFollower } from "@/lib/audio/lane-follower";
 import { NativeEngine } from "@/lib/audio/native-engine";
 import * as tauri from "@/lib/tauri";
 import { FakeAlphaTabApi } from "@/test/fake-alphatab";
@@ -168,6 +169,16 @@ describe("ScorePlayer: audio lanes with the SoundFonts synthesizer (hybrid)", ()
     });
     await vi.waitFor(() => expect(mocked.setEngineLanes).toHaveBeenCalled());
     expect(mocked.setEngineLanes.mock.calls[0]![0]?.audio.lanes).toHaveLength(1);
+  });
+
+  it("lets the lanes follow only jumps of the notes during a Practice together session (#258)", async () => {
+    const tolerant = vi.spyOn(LaneFollower.prototype, "setTolerant");
+    const { player } = await setup();
+    player.setSeekLock(true);
+    expect(tolerant).toHaveBeenLastCalledWith(true);
+    player.setSeekLock(false);
+    expect(tolerant).toHaveBeenLastCalledWith(false);
+    tolerant.mockRestore();
   });
 
   it("does not open the engine for a song without lanes", async () => {

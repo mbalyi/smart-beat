@@ -564,3 +564,35 @@ fn edit_bursts_from_several_guests_keep_their_order_and_reach_everyone() {
         }
     }
 }
+
+/// #258: the host listens on every network, so a guest on another of its networks (a cable, a
+/// link-local link) gets in with the code made for that address. Before, the host listened on
+/// the code's address only, and a guest on another network was refused at the door.
+#[test]
+fn a_host_on_every_network_accepts_the_code_for_another_of_its_addresses() {
+    use smart_beat_lib::practice_network::host_candidates;
+
+    // Advertise a real address of this computer when it has one (a TEST-NET address otherwise),
+    // then join through loopback, which the advertised address is not.
+    let advertise = host_candidates()
+        .into_iter()
+        .map(|c| c.ip)
+        .find(|ip| !ip.is_loopback())
+        .unwrap_or(Ipv4Addr::new(192, 0, 2, 1));
+    let (host_sink, host_rx) = sink();
+    let host = Link::host(advertise, host_sink).expect("host");
+    let other = host.code_for(Ipv4Addr::LOCALHOST);
+    assert_ne!(other, host.code());
+    let room = Room::parse(&other).unwrap();
+    assert_eq!(*room.addr.ip(), Ipv4Addr::LOCALHOST);
+    assert_eq!(room.addr.port(), host.port());
+
+    let (guest_sink, guest_rx) = sink();
+    let guest = Link::join(&other, guest_sink).expect("join through another address");
+    opened(&host_rx);
+    state(&guest_rx, LinkState::Open);
+    assert!(guest.send(None, "hello"));
+    assert_eq!(frame(&host_rx), "hello");
+    guest.leave();
+    host.leave();
+}

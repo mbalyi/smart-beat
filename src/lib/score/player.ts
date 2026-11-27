@@ -37,6 +37,7 @@ import { applyPalette, baseRenderSettings } from "@/lib/score/render-settings";
 import type { ScoreTheme } from "@/lib/score/score-theme";
 import {
   busMixes,
+  clockSongFromMidi,
   NativeEngine,
   trackChannels,
   type EffectProblems,
@@ -63,8 +64,10 @@ import {
   playClick,
   playCountInClicks,
   primeClickAudio,
+  SongTimeline,
   type ClickRun,
 } from "@/lib/audio/count-in-clicks";
+import { tempoMap, tickToMs, type TempoMap } from "@/lib/audio/tempo-map";
 import type { ClickSoundId, LoopRange } from "@/lib/score/practice";
 import { applyTrackView, gpFromPan, type Score, type TrackView } from "@/lib/score/score";
 import { tempoAt } from "@/lib/score/structure";
@@ -506,6 +509,7 @@ export class ScorePlayer {
     });
     api.playerStateChanged.on((e) => {
       this.playing = e.state === PlayerState.Playing;
+      if (!this.playing) this.songTimeline.reset();
       if (this.lanePlayback) {
         if (this.playing) this.lanePlayback.play(api.tickPosition, api.playbackSpeed);
         else this.lanePlayback.pause();
@@ -529,6 +533,8 @@ export class ScorePlayer {
     // exists recursed forever (AlphaSynthWebWorkerApi.loadedMidiInfo; fixed in 1.9.0,
     // but this event carries all we need).
     api.playerPositionChanged.on((e) => {
+      // As it arrives (not delayed like the cursor): the metronome clicks are placed by it.
+      if (this.playing) this.songTimeline.note(e.currentTime, performance.now(), api.playbackSpeed);
       this.lanePlayback?.position(e.currentTick, this.playing);
       this.stopAfterOnce(e.currentTick);
       this.delayer.run(() => {
@@ -539,6 +545,8 @@ export class ScorePlayer {
     // alphaTab leaves slap, pop, tapping, pick strokes and wah silent: make them
     // audible in the MIDI it just generated (its tick lookup is ready by now).
     api.midiLoad.on((file) => {
+      const song = clockSongFromMidi(file);
+      this.clickTempo = tempoMap(song.division, song.tempos);
       const lookup = api.tickCache;
       if (lookup) approximateSilentEffects(file, lookup);
       remapSilentDrums(file); // the SoundFont has no sample for some drum numbers
@@ -611,8 +619,10 @@ export class ScorePlayer {
       const click = this.ownClick;
       if (!click) return;
       for (const event of e.events) {
-        const tick = event as { isMetronome?: boolean; metronomeNumerator?: number };
-        if (tick.isMetronome) playClick(click.sound, tick.metronomeNumerator === 0, click.volume);
+        const tick = event as { isMetronome?: boolean; metronomeNumerator?: number; tick?: number };
+        if (!tick.isMetronome) continue;
+        const heardAt = tick.tick === undefined ? undefined : this.clickHeardAt(tick.tick);
+        playClick(click.sound, tick.metronomeNumerator === 0, click.volume, heardAt);
       }
     });
     api.playbackRangeChanged.on((e) => this.onPlaybackRangeChanged(e.playbackRange));
@@ -1005,10 +1015,13 @@ export class ScorePlayer {
   /**
    * Practice together: while on, a click in the score cannot move the cursor during playback
    * (it still can while stopped or paused). alphaTab reads the setting when the mouse is used.
+   * The audio lanes then follow only jumps of the notes, not small drifts.
    */
   setSeekLock(on: boolean) {
     this.seekLocked = on;
     this.updateInteraction();
+    // A session's lanes only follow jumps of the notes, not small drifts (#258).
+    this.lanePlayback?.setTolerant(on);
   }
 
   /** Clears a range selected with the mouse outside edit mode (a loop stays). */
@@ -1248,6 +1261,26 @@ export class ScorePlayer {
 
   /** The metronome sound and volume played from alphaTab's metronome events (synthesizer path). */
   private ownClick: { sound: ClickSoundId; volume: number } | null = null;
+  /** The song's tempo map, so a metronome event's tick is a time in the song. */
+  private clickTempo: TempoMap | null = null;
+  /** Where the song falls on the page's clock while it plays (see `clickHeardAt`). */
+  private readonly songTimeline = new SongTimeline();
+
+  /**
+   * When the metronome click of a tick is heard, as a `performance.now()` time (#258): the
+   * synthesizer renders the tick's song time at the moment the position reports put it at, and it
+   * is heard the output latency later (the user's cursor offset is not part of the sound). Each
+   * event carries its own tick, so a repeat or a loop that restarted is placed right. alphaTab
+   * reports an event only once it was rendered, so it is never heard later than one latency from
+   * now. Undefined when it cannot be placed: the click then sounds at once.
+   */
+  private clickHeardAt(tick: number): number | undefined {
+    if (!this.clickTempo) return undefined;
+    const rendered = this.songTimeline.pageTimeOf(tickToMs(this.clickTempo, tick));
+    if (rendered === null) return undefined;
+    const latency = outputLatencyMs(this.latencyInfo, 0);
+    return Math.min(rendered + latency, performance.now() + latency);
+  }
   private countInSound: ClickSoundId = "classic";
 
   /** The count-in is on, and for how many beats (null: the bar's time signature). */

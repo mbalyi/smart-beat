@@ -12,6 +12,7 @@ pub mod crash_scrub;
 mod dotenv;
 pub mod error;
 pub mod features;
+pub mod hotspot;
 pub mod lane_transcription;
 pub mod m4a;
 pub mod menu;
@@ -20,6 +21,7 @@ pub mod mixer;
 pub mod open_file;
 pub mod pdf;
 pub mod practice;
+pub mod practice_network;
 pub mod practice_signal;
 pub mod project;
 pub mod recent;
@@ -58,6 +60,7 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         .manage(recording::muscriptor_model::DownloadRun::default())
         .manage(recording::RecordingRun::default())
         .manage(practice::PracticeState::default())
+        .manage(hotspot::HotspotState::default())
         .manage(practice_signal::SignalState::default())
         .manage(stems::StemsRun::default())
         .manage(stems::umx_model::DownloadRun::default())
@@ -161,6 +164,9 @@ pub fn setup<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             practice::practice_send,
             practice::practice_kick,
             practice::practice_leave,
+            hotspot::practice_network_support,
+            hotspot::practice_network_start,
+            hotspot::practice_network_stop,
             practice_signal::practice_signal_available,
             practice_signal::practice_signal_create,
             practice_signal::practice_signal_join,
@@ -370,6 +376,10 @@ fn flush_on_quit<R: Runtime>(app: &tauri::AppHandle<R>) {
     // A Practice together session ends with the app, so the other side is not left hanging.
     if let Some(p) = app.try_state::<practice::PracticeState>() {
         p.leave();
+    }
+    // A network the app made (#258) goes with it, so the computer's Wi-Fi is not left hosting.
+    if let Some(h) = app.try_state::<hotspot::HotspotState>() {
+        let _ = h.stop();
     }
     if let Some(p) = app.try_state::<practice_signal::SignalState>() {
         p.leave();

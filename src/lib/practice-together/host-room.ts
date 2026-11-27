@@ -203,7 +203,13 @@ export class HostRoom {
   private readonly bannedAddresses = new Set<string>();
   private readonly listeners = new Set<(state: SessionState) => void>();
   private readonly stops: (() => void)[] = [];
-  private readonly cancels = new Map<number, () => void>();
+  private readonly cancels = new Map<number, (abort?: boolean) => void>();
+  /** A song plays on the host: every guest's session stays quiet (#258). */
+  private playing = false;
+  /** Counts halts: a start that was being prepared when one came is not made. */
+  private haltEpoch = 0;
+  /** The host's last Pause or Stop, sent again to a guest that comes back (it may have missed it). */
+  private lastHalt: Command | null = null;
   private score: ScoreFingerprint;
   private choice: QualityChoice;
   private cmdId = 0;
@@ -263,6 +269,13 @@ export class HostRoom {
 
   /** The room listens from the start; nothing to begin. Kept so a room and a session are used alike. */
   start(): void {}
+
+  /** Whether a song plays on the host (see `Session.setPlaying`): every guest's session is told. */
+  setPlaying(on: boolean): void {
+    this.playing = on;
+    if (on) this.lastHalt = null;
+    for (const seat of this.seats.values()) seat.session.setPlaying(on);
+  }
 
   setQuality(choice: QualityChoice) {
     this.choice = choice;
@@ -391,22 +404,37 @@ export class HostRoom {
       return "not-synchronized";
     }
     // A guest with another score waits for the host's tab: it is not part of the start.
-    const targets = synced.filter((seat) => seat.session.snapshot.problem?.kind !== "score");
-    if (targets.length === 0) return "score";
+    const ready = (seat: Seat) =>
+      seat.session.snapshot.phase === "synchronized" &&
+      seat.session.snapshot.problem?.kind !== "score";
+    const candidates = synced.filter(ready);
+    if (candidates.length === 0) return "score";
+    const halts = this.haltEpoch;
+    const epoch = this.hookEpoch;
+    // Play: every clock estimate is brought up to date before the lead time is read (nothing is
+    // measured while a song plays, #258).
+    if (partial.action === "play") {
+      await Promise.all(candidates.map((seat) => seat.session.refresh()));
+      if (this.ended || halts !== this.haltEpoch || epoch !== this.hookEpoch) return "late";
+    }
+    const targets = candidates.filter(ready);
+    if (targets.length === 0) return "not-synchronized";
     const leadMs = Math.max(...targets.map((seat) => seat.session.snapshot.leadMs));
     const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + leadMs };
-    const epoch = this.hookEpoch;
     const answers = targets.map((seat) => seat.session.dispatch(cmd));
     const mine = this.hooks.prepare(cmd).catch(() => false);
-    const [mineOk, ...ready] = await Promise.all([mine, ...answers]);
-    // The app moved the session to another tab while this was getting ready: nothing starts.
-    if (epoch !== this.hookEpoch) {
+    const [mineOk, ...answered] = await Promise.all([mine, ...answers]);
+    // The app moved the session to another tab while this was getting ready, or a Stop came
+    // meanwhile: nothing starts.
+    if (epoch !== this.hookEpoch || halts !== this.haltEpoch) {
       for (const seat of targets) seat.session.callOff(cmd.id, "host-late");
       return "late";
     }
-    const anyReady = ready.some(Boolean);
+    const anyReady = answered.some(Boolean);
     targets.forEach((seat, i) => {
-      if (!mineOk || !ready[i]) seat.session.callOff(cmd.id, mineOk ? "peer-late" : "host-late");
+      if (!mineOk || !answered[i]) {
+        seat.session.callOff(cmd.id, mineOk ? "peer-late" : "host-late");
+      }
     });
     if (!mineOk || !anyReady) return "late";
     this.cancels.set(cmd.id, this.hooks.schedule(cmd, cmd.at));
@@ -414,18 +442,28 @@ export class HostRoom {
   }
 
   /**
-   * Everybody stops, as the host's tab that played has gone: every guest in sync gets the command
-   * without waiting for the answers or for the same score, since the host has nothing to prepare.
+   * Pause or Stop for everybody, now (#258): the host stops here at once, and every guest is sent
+   * the command whatever its phase, without a lead time and without waiting for an answer or for
+   * the same score. A Play still on its way is called off. A guest that missed it (its connection
+   * was down) gets it again when it comes back.
    */
-  stopAll(partial: Omit<Command, "id" | "at">): void {
+  halt(partial: Omit<Command, "id" | "at">): void {
     if (this.ended) return;
-    const synced = [...this.seats.values()].filter(
-      (seat) => seat.session.snapshot.phase === "synchronized",
-    );
-    if (synced.length === 0) return;
-    const leadMs = Math.max(...synced.map((seat) => seat.session.snapshot.leadMs));
-    const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() + leadMs };
-    for (const seat of synced) void seat.session.dispatch(cmd);
+    this.haltEpoch += 1;
+    const cmd: Command = { ...partial, id: (this.cmdId += 1), at: this.now() };
+    this.lastHalt = cmd;
+    for (const cancel of this.cancels.values()) cancel(true);
+    this.cancels.clear();
+    for (const seat of this.seats.values()) {
+      if (!seat.retiring) seat.session.halt(cmd);
+    }
+    this.hooks.schedule(cmd, cmd.at);
+  }
+
+  /** A guest came back: it is told how the host's transport stands (it may have missed a Stop). */
+  private sendTransport(seat: Seat) {
+    if (this.playing || !this.lastHalt) return;
+    seat.session.halt({ ...this.lastHalt, id: (this.cmdId += 1) });
   }
 
   // ----- guests ----------------------------------------------------------------------------
@@ -511,6 +549,7 @@ export class HostRoom {
       retiring: false,
     };
     this.seats.set(id, seat);
+    session.setPlaying(this.playing);
     session.subscribe(() => this.watch(seat));
     // A connection lost before the guest was let in takes its place with it.
     transport.onState((state) => {
@@ -534,6 +573,7 @@ export class HostRoom {
       request: this.hooks.request,
       tab: this.hooks.tab,
       approve: (name) => this.approve(seat(), name),
+      rewelcomed: () => this.sendTransport(seat()),
       edit: {
         // Only a guest whose app can edit together is part of it; an older one stays read-only.
         receive: (body) => {

@@ -1843,6 +1843,31 @@ fn practice_together_hosts_reports_bad_codes_and_leaves() {
     assert_eq!(code.len(), 24, "{code}");
     assert_eq!(host["link"], format!("smartbeat://join/{code}"));
     assert!(host["address"].as_str().unwrap().contains(':'));
+    // #258: one code per network the host is on, best first; the first is the code above.
+    let addresses = host["addresses"].as_array().unwrap();
+    assert!(!addresses.is_empty());
+    assert_eq!(addresses[0]["code"], host["code"]);
+    assert_eq!(addresses[0]["address"], host["address"]);
+    let port = host["address"]
+        .as_str()
+        .unwrap()
+        .rsplit(':')
+        .next()
+        .unwrap();
+    for entry in addresses {
+        assert!(entry["name"].is_string(), "{entry}");
+        assert!(
+            ["wifi", "cable", "link-local", "other"].contains(&entry["kind"].as_str().unwrap()),
+            "{entry}"
+        );
+        assert!(
+            entry["address"]
+                .as_str()
+                .unwrap()
+                .ends_with(&format!(":{port}"))
+        );
+        assert_eq!(entry["code"].as_str().unwrap().len(), 24, "{entry}");
+    }
 
     // No guest yet: nothing is sent.
     let sent = invoke_with(&window, "practice_send", json!({ "text": "hi" })).unwrap();
@@ -1861,4 +1886,24 @@ fn practice_together_hosts_reports_bad_codes_and_leaves() {
         states.iter().any(|s| s.contains("\"closed\"")),
         "{states:?}"
     );
+}
+
+#[test]
+fn practice_network_support_says_whether_this_computer_can_host_a_network() {
+    let app = app();
+    let window = main_window(&app);
+    let support = invoke(&window, "practice_network_support").unwrap();
+    let can_host = support["canHost"].as_bool().unwrap();
+    if can_host {
+        assert!(support["reason"].is_null(), "{support}");
+    } else {
+        assert!(!support["reason"].as_str().unwrap().is_empty(), "{support}");
+    }
+    if cfg!(not(any(windows, target_os = "linux"))) {
+        assert!(!can_host, "only Windows and Linux can host a network");
+        let error = invoke(&window, "practice_network_start").unwrap_err();
+        assert_eq!(error["kind"], "network");
+    }
+    // Stopping with nothing running is fine everywhere.
+    invoke(&window, "practice_network_stop").unwrap();
 }

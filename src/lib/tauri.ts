@@ -1921,6 +1921,41 @@ export interface PracticeHostInfo {
   link: string;
   /** The address the code stands for (shown so a firewall problem can be found). */
   address: string;
+  /**
+   * One code per network the host is on, best first (the first is `code`/`address`). The host
+   * listens on all of them (#258), so a guest on a cable or link-local link uses that one's code.
+   */
+  addresses?: PracticeHostAddress[];
+}
+
+/** Mirrors `NetworkKind` in `src-tauri/src/practice_network.rs` (a best guess from the name). */
+export type PracticeNetworkKind = "wifi" | "cable" | "link-local" | "other";
+
+/** Mirrors `HostAddress` in `src-tauri/src/practice.rs`: one network the host is on. */
+export interface PracticeHostAddress {
+  /** The system's name of the network adapter (`en0`, `Wi-Fi`). */
+  name: string;
+  kind: PracticeNetworkKind;
+  /** `ip:port`. */
+  address: string;
+  /** The room code for this network. */
+  code: string;
+}
+
+/** Mirrors `NetworkSupport` in `src-tauri/src/hotspot/mod.rs`. */
+export interface PracticeNetworkSupport {
+  /** Whether this computer can make a Wi-Fi network from the app (Windows and Linux). */
+  canHost: boolean;
+  /** Why not, when it cannot. */
+  reason: string | null;
+}
+
+/** Mirrors `HostedNetwork` in `src-tauri/src/hotspot/mod.rs`: a network the app made. */
+export interface PracticeHostedNetwork {
+  ssid: string;
+  passphrase: string;
+  /** The text of a Wi-Fi QR code (`WIFI:T:WPA;S:…;P:…;;`). */
+  wifiQr: string;
 }
 
 const PRACTICE_FRAME_EVENT = "practice-frame";
@@ -1945,6 +1980,28 @@ export const practiceKick = (conn: number, ban: boolean) =>
 
 /** Ends the session. */
 export const practiceLeave = () => call<void>("practice_leave");
+
+const PRACTICE_NETWORK_STOPPED_EVENT = "practice-network-stopped";
+
+/** Whether this computer can host a Wi-Fi network for the other players (#258). */
+export const practiceNetworkSupport = () =>
+  call<PracticeNetworkSupport>("practice_network_support");
+
+/** Makes a Wi-Fi network with a new name and password (or returns the one that runs). */
+export const practiceNetworkStart = () => call<PracticeHostedNetwork>("practice_network_start");
+
+/** Stops the network the app made. */
+export const practiceNetworkStop = () => call<void>("practice_network_stop");
+
+/** The network the app made stopped by itself (Wi-Fi switched off, say), with the reason. */
+export async function onPracticeNetworkStopped(
+  handler: (reason: string) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<{ reason: string }>(PRACTICE_NETWORK_STOPPED_EVENT, (event) =>
+    handler(event.payload.reason),
+  );
+}
 
 /**
  * Frames from the other app. `conn` says which connection it came on: a host has one per guest,

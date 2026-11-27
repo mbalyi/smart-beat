@@ -1962,6 +1962,10 @@ export function ScoreWorkspace({
     together.state !== null &&
     together.state.phase !== "closed" &&
     together.state.phase !== "failed";
+  // Nothing is measured between the two computers while a song plays here (#258): the song
+  // ending and a local Stop count too.
+  const setTogetherPlaying = together.setPlaying;
+  useEffect(() => setTogetherPlaying?.(playing), [playing, setTogetherPlaying]);
   useSessionEngine(sessionOn, audioEngine, setAudioEngine);
   useEffect(() => playerRef.current?.setSeekLock(sessionOn), [sessionOn, playerEpoch]);
   // The player is rebuilt when the session switches the engine to the SoundFonts: the one that

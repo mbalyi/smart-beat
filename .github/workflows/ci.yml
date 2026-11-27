@@ -172,6 +172,12 @@ jobs:
         if: runner.os == 'Linux'
         run: pnpm rust:lint
 
+      # Windows-only code (the Wi-Fi Direct hotspot, #258; the Media Foundation encoder) is not
+      # compiled on Linux, so it is linted here with the same flags.
+      - name: Rust lint (clippy, Windows-only code)
+        if: runner.os == 'Windows'
+        run: pnpm rust:lint
+
       - name: Rust unit + integration tests
         run: pnpm rust:test
 

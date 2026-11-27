@@ -26,6 +26,13 @@ export interface FeatureEntry {
 
 export const FEATURE_REGISTRY: readonly FeatureEntry[] = [
   {
+    id: "practice-together-sync",
+    title: "Practice together stays together",
+    summary:
+      "Once a song plays in Practice together, the two computers no longer re-sync their clocks, so the music and every metronome sound stay together for the whole song. Stop or Pause on either computer stops both at once, even during a short connection drop, and the next Play syncs again. The room works over a cable or any local network, with a code for each network, and a Windows or Linux laptop can host a Wi-Fi network for the other computer to join.",
+    since: "1.4.0",
+  },
+  {
     id: "crash-reports-default",
     title: "Crash reports are on by default",
     summary:

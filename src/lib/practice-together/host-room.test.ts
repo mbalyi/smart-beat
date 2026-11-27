@@ -9,7 +9,12 @@ import {
   type HostRoomOptions,
 } from "@/lib/practice-together/host-room";
 import { MAX_PLAYERS, encode, type Command } from "@/lib/practice-together/protocol";
-import { Session, type SessionHooks, type SessionOptions } from "@/lib/practice-together/session";
+import {
+  REFRESH_PINGS,
+  Session,
+  type SessionHooks,
+  type SessionOptions,
+} from "@/lib/practice-together/session";
 import type { ReceivedTab, TabPayload } from "@/lib/practice-together/tab-transfer";
 import {
   dropPair,
@@ -343,10 +348,11 @@ describe("starting together", () => {
     const bob = (await join(host, "Bob")).guest;
     expect(ann.session.request("play", 480)).toBe(true);
     expect(bob.session.request("stop")).toBe(true);
-    await vi.advanceTimersByTimeAsync(20);
+    // A Play is asked for after a few quick pings (#258); a Stop goes at once.
+    await vi.advanceTimersByTimeAsync(500);
     expect(host.log.requested).toEqual([
-      ["play", 480],
       ["stop", undefined],
+      ["play", 480],
     ]);
   });
 
@@ -571,5 +577,97 @@ describe("the room's own lifetime", () => {
     expect(host.room.snapshot.listening).toBe(false);
     expect(host.room.snapshot.problem?.message).toMatch(/can no longer join/);
     expect(host.room.snapshot.peers).toHaveLength(1);
+  });
+});
+
+describe("pause and stop for the whole room (#258)", () => {
+  it("reach every guest whatever its phase, and the host stops at once", async () => {
+    const host = makeHost();
+    const ann = (await join(host, "Ann")).guest;
+    const bob = (await join(host, "Bob")).guest;
+    // Bob's laptop slept: his clocks are being synced again, he is not in sync.
+    vi.setSystemTime(Date.now() + 120_000);
+    for (let i = 0; i < 400 && bob.session.snapshot.phase === "synchronized"; i += 1) {
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    expect(bob.session.snapshot.phase).toBe("syncing");
+    host.room.halt(cmd({ action: "stop" }));
+    // The host does not wait for anyone.
+    expect(host.log.scheduled.map((s) => s.cmd.action)).toEqual(["stop"]);
+    expect(host.log.prepared).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(ann.scheduled.map((c) => c.action)).toEqual(["stop"]);
+    expect(bob.scheduled.map((c) => c.action)).toEqual(["stop"]);
+    expect(ann.prepared).toHaveLength(0);
+  });
+
+  it("calls off a Play that is still on its way", async () => {
+    const host = makeHost();
+    const ann = (await join(host, "Ann")).guest;
+    const started = host.room.command(cmd());
+    await vi.advanceTimersByTimeAsync(20);
+    host.room.halt(cmd({ action: "pause" }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await started).toBe("late");
+    expect(host.log.scheduled.map((s) => s.cmd.action)).toEqual(["pause"]);
+    expect(ann.scheduled.map((c) => c.action)).toEqual(["pause"]);
+  });
+
+  it("tells a guest that comes back about a Stop it missed", async () => {
+    const host = makeHost();
+    const { pair } = await join(host, "Ann");
+    host.room.setPlaying(true);
+    dropPair(pair);
+    await vi.advanceTimersByTimeAsync(100);
+    // The host stops while Ann's line is down: she does not hear it.
+    host.room.halt(cmd({ action: "stop" }));
+    host.room.setPlaying(false);
+    await vi.advanceTimersByTimeAsync(100);
+    const again = await join(host, "Ann");
+    expect(again.guest.scheduled.map((c) => c.action)).toContain("stop");
+  });
+
+  it("does not stop a guest that comes back while the host plays", async () => {
+    const host = makeHost();
+    const { pair } = await join(host, "Ann");
+    host.room.halt(cmd({ action: "stop" }));
+    await vi.advanceTimersByTimeAsync(10);
+    host.room.setPlaying(true);
+    dropPair(pair);
+    await vi.advanceTimersByTimeAsync(100);
+    const again = await join(host, "Ann");
+    expect(again.guest.scheduled).toEqual([]);
+  });
+});
+
+describe("while the host plays (#258)", () => {
+  it("tells every guest's session, and one that joins later", async () => {
+    const host = makeHost();
+    const { pair } = await join(host, "Ann");
+    host.room.setPlaying(true);
+    const pings: string[] = [];
+    pair[1].onFrame((text) => {
+      if (text.includes('"ping"')) pings.push(text);
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    pings.length = 0;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(pings).toEqual([]);
+    // A guest that joins during the song is still synced (it has no estimate yet).
+    const bob = (await join(host, "Bob")).guest;
+    expect(bob.session.snapshot.phase).toBe("synchronized");
+  });
+
+  it("brings every guest's clock up to date before the lead time of a Play", async () => {
+    const host = makeHost();
+    const { pair } = await join(host, "Ann");
+    const sent: string[] = [];
+    pair[1].onFrame((text) => {
+      const type = /"type":"([a-z-]+)"/.exec(text)?.[1];
+      if (type) sent.push(type);
+    });
+    expect(await run(host)).toBe("started");
+    const command = sent.indexOf("cmd");
+    expect(sent.slice(0, command).filter((t) => t === "ping")).toHaveLength(REFRESH_PINGS);
   });
 });

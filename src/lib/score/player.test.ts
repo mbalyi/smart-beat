@@ -23,7 +23,8 @@ vi.mock(import("@coderline/alphatab"), async (importOriginal) => ({
   AlphaTabApi: (await import("@/test/fake-alphatab")).FakeAlphaTabApi as never,
 }));
 
-vi.mock(import("@/lib/audio/count-in-clicks"), () => ({
+vi.mock(import("@/lib/audio/count-in-clicks"), async (importOriginal) => ({
+  ...(await importOriginal()),
   playCountInClicks: vi.fn(() => ({ cancel: vi.fn() })),
   playClick: vi.fn(),
   primeClickAudio: vi.fn(async () => {}),
@@ -1213,10 +1214,95 @@ describe("ScorePlayer", () => {
 
         api.midiEventsPlayed.trigger(tick(0) as never);
         api.midiEventsPlayed.trigger(tick(2) as never);
+        // Nothing has played yet, so the clicks cannot be placed on the audio timeline: now.
         expect(vi.mocked(playClick).mock.calls).toEqual([
-          ["cowbell", true, 2],
-          ["cowbell", false, 2],
+          ["cowbell", true, 2, undefined],
+          ["cowbell", false, 2, undefined],
         ]);
+      });
+
+      describe("placed on the audio timeline from each click's tick (#258)", () => {
+        const LATENCY_MS = 50;
+        let now = 1_000;
+        /** alphaTab's MIDI: 120 beats a minute, 960 ticks a quarter (a tick is 0.52 ms). */
+        const midiFile = () => {
+          const file = new midi.MidiFile();
+          file.division = 960;
+          file.addEvent(new midi.TempoChangeEvent(0, 500_000));
+          return file;
+        };
+        const click = (at: number) => ({
+          events: [{ isMetronome: true, metronomeNumerator: 1, tick: at }],
+        });
+        const position = (api: FakeAlphaTabApi, currentTime: number) =>
+          api.playerPositionChanged.trigger({
+            currentTime,
+            endTime: 60_000,
+            currentTick: 0,
+            originalTempo: 120,
+            modifiedTempo: 120,
+          });
+        const heardAt = () => vi.mocked(playClick).mock.calls.at(-1)?.[3];
+
+        async function clicking() {
+          const context = await readySetup();
+          window.__smartBeatOutputLatencyMs = LATENCY_MS;
+          now = 1_000;
+          vi.spyOn(performance, "now").mockImplementation(() => now);
+          (context.api as unknown as { tickCache: unknown }).tickCache = null;
+          context.api.midiLoad.trigger(midiFile());
+          context.player.setMetronome(true, 1, "cowbell");
+          context.setPlaying(true);
+          vi.mocked(playClick).mockClear();
+          return context;
+        }
+
+        afterEach(() => {
+          delete window.__smartBeatOutputLatencyMs;
+          vi.restoreAllMocks();
+        });
+
+        it("is heard when the notes of its tick are", async () => {
+          const { api } = await clicking();
+          position(api, 2_000); // the synthesizer renders 2 s into the song now (1 000 ms)
+          now = 1_010;
+          api.midiEventsPlayed.trigger(click(3_840) as never); // 2 000 ms into the song
+          expect(heardAt()).toBeCloseTo(1_000 + LATENCY_MS, 6);
+        });
+
+        it("keeps its time when the event reaches a busy page late", async () => {
+          const { api } = await clicking();
+          position(api, 2_000);
+          now = 1_300;
+          api.midiEventsPlayed.trigger(click(3_840) as never);
+          // Not 300 ms late: the audio timeline is told the moment it was due (or plays it at once).
+          expect(heardAt()).toBeCloseTo(1_000 + LATENCY_MS, 6);
+        });
+
+        it("follows the playback speed", async () => {
+          const { api } = await clicking();
+          api.playbackSpeed = 0.5;
+          position(api, 2_100);
+          now = 1_010;
+          api.midiEventsPlayed.trigger(click(3_840) as never); // 100 song ms earlier: 200 ms at half speed
+          expect(heardAt()).toBeCloseTo(800 + LATENCY_MS, 6);
+        });
+
+        it("is placed right after a loop restarted", async () => {
+          const { api } = await clicking();
+          position(api, 2_000);
+          now = 1_100;
+          position(api, 0); // the loop went back to the start of the song
+          now = 1_105;
+          api.midiEventsPlayed.trigger(click(0) as never);
+          expect(heardAt()).toBeCloseTo(1_100 + LATENCY_MS, 6);
+        });
+
+        it("sounds at once before anything was reported", async () => {
+          const { api } = await clicking();
+          api.midiEventsPlayed.trigger(click(0) as never);
+          expect(heardAt()).toBeUndefined();
+        });
       });
 
       it("stops clicking when the metronome is switched off", async () => {

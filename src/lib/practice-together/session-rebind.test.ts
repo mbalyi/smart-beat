@@ -236,7 +236,8 @@ describe("a room whose app moves to another tab", () => {
     const { guest } = await join(acceptor, "Ann");
 
     const started = room.command(cmd());
-    await vi.advanceTimersByTimeAsync(50);
+    // Past the quick pings before a Play (#258): the host is preparing now.
+    await vi.advanceTimersByTimeAsync(250);
     const b = hostHooks("tab-b");
     room.rebind(b.hooks);
     await settle(2_000);
@@ -254,7 +255,8 @@ describe("a room whose app moves to another tab", () => {
     const { room, acceptor } = makeRoom(a.hooks);
     await join(acceptor, "Ann");
     const started = room.command(cmd());
-    await vi.advanceTimersByTimeAsync(50);
+    // The quick pings before a Play (#258), then the preparing.
+    await vi.advanceTimersByTimeAsync(500);
     expect(await Promise.race([started, Promise.resolve("pending")])).toBe("started");
     expect(a.log.scheduled).toHaveLength(1);
 

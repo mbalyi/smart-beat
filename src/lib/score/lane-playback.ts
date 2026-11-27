@@ -160,6 +160,11 @@ export class LanePlayback {
     return this.tempo ? tickToMs(this.tempo, tick) : 0;
   }
 
+  /** Practice together: the lanes follow only jumps of the notes, not small drifts (#258). */
+  setTolerant(on: boolean) {
+    this.follower.setTolerant(on);
+  }
+
   /** The notes start playing at `tick`. */
   play(tick: number, speed: number) {
     if (!this.loaded) return;

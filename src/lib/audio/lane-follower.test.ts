@@ -347,6 +347,40 @@ describe("LaneFollower", () => {
       expect(calls).toEqual(["seek 1100"]);
     });
 
+    describe("tolerant (a Practice together session, #258)", () => {
+      it("leaves a small drift alone, however often it is seen", async () => {
+        const { follower, calls, advance } = await playing();
+        follower.setTolerant(true);
+        for (let i = 0; i < 5; i += 1) {
+          // 150 ms apart: over the limit, under a jump.
+          follower.onStatus({ positionMs: 1_000 + i * 500, playing: true });
+          follower.follow(1_210 + i * 500);
+          advance(500);
+        }
+        expect(calls).toEqual([]);
+      });
+
+      it("still follows a jump: a seek or a loop that restarted", async () => {
+        const { follower, calls } = await playing();
+        follower.setTolerant(true);
+        follower.onStatus({ positionMs: 1_000, playing: true });
+        follower.follow(200);
+        expect(calls).toEqual(["seek 160"]);
+      });
+
+      it("corrects small drifts again once switched off", async () => {
+        const { follower, calls, advance } = await playing();
+        follower.setTolerant(true);
+        follower.setTolerant(false);
+        follower.onStatus({ positionMs: 1_000, playing: true });
+        follower.follow(1_130);
+        advance(10);
+        follower.onStatus({ positionMs: 1_010, playing: true });
+        follower.follow(1_140);
+        expect(calls).toEqual(["seek 1100"]);
+      });
+    });
+
     it("a seek while playing goes where the notes are heard, not where they are rendered", async () => {
       const { follower, calls } = await playing();
       follower.seek(4_000);
