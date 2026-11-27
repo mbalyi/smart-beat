@@ -96,6 +96,7 @@ export function MidiEditor({
   onClose,
   onEffects,
   onEditPads,
+  onWriteTab,
 }: {
   lanes: AudioLanesController;
   lane: AudioLane;
@@ -106,6 +107,8 @@ export function MidiEditor({
   onEffects: (laneIndex: number) => void;
   /** Opens the pad board for this lane. */
   onEditPads?: () => void;
+  /** Writes a clip's notes into the tab. */
+  onWriteTab?: (clipId: string) => void;
 }) {
   const { audio } = lanes;
   const clips = lane.clips.filter((c) => c.midi);
@@ -610,6 +613,11 @@ export function MidiEditor({
         >
           Export MIDI…
         </Button>
+        {onWriteTab && (
+          <Button variant="ghost" size="sm" className="h-8" onClick={() => onWriteTab(clip.id)}>
+            Write into the tab
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"

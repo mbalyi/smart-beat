@@ -44,7 +44,7 @@ describe("SettingsDialog", () => {
     expect(screen.getByTestId("settings-title-art")).toHaveAttribute("alt", "");
     expect(
       screen.getByText(
-        "Choose your audio input, connect your cloud storage and decide what you share.",
+        "Choose your audio input and MIDI devices, connect your cloud storage and decide what you share.",
       ),
     ).toBeInTheDocument();
     await expectNoA11yViolations();

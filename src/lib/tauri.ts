@@ -2737,3 +2737,98 @@ export async function cancelStemModelDownload(): Promise<void> {
 }
 
 export const removeStemModel = (model: StemModelId) => call<void>("stem_model_remove", { model });
+
+// --- MIDI input (ADR 0006) ------------------------------------------------------------------
+
+/** Mirrors `ControlAction` in `src-tauri/src/midi/mapping.rs`. */
+export type MidiControlAction =
+  | "playPause"
+  | "stop"
+  | "record"
+  | "metronome"
+  | "loop"
+  | "laneVolume"
+  | "lanePan"
+  | "masterVolume"
+  | "speed";
+
+/** Mirrors `ControlMap`. */
+export interface MidiControlMap {
+  source: "cc" | "note";
+  chan: number;
+  number: number;
+  action: MidiControlAction;
+  relative: boolean;
+}
+
+/** Mirrors `PadRoute`: the note a pad sends and the note it plays. */
+export interface PadRoute {
+  from: number;
+  to: number;
+}
+
+/** Mirrors `DeviceSettings`. */
+export interface MidiDeviceSettings {
+  name: string;
+  alias: string;
+  enabled: boolean;
+  offsetMs: number;
+  controlOnly: boolean;
+  channel: number | null;
+  transpose: number;
+  fixedVelocity: number | null;
+  padLayout: "grid16" | "grid8";
+  pads: PadRoute[];
+  controls: MidiControlMap[];
+}
+
+/** Mirrors `DeviceView`. */
+export interface MidiDevice {
+  name: string;
+  connected: boolean;
+  settings: MidiDeviceSettings;
+}
+
+/** Mirrors `Activity`: a note, controller or button seen on a device. */
+export interface MidiActivity {
+  device: string;
+  kind: "note" | "noteOff" | "cc" | "bend" | "pressure" | "program" | "transport";
+  chan: number;
+  number: number;
+  value: number;
+  plays: number | null;
+}
+
+/** Mirrors `ControlEvent`. */
+export interface MidiControlEvent {
+  action: MidiControlAction;
+  value: number | null;
+  relative: boolean;
+}
+
+export type PadPreset = "thru" | "gmKit" | "chromatic";
+
+export const listMidiDevices = () => call<MidiDevice[]>("midi_devices");
+export const updateMidiDevice = (settings: MidiDeviceSettings) =>
+  call<MidiDevice[]>("midi_device_update", { settings });
+export const forgetMidiDevice = (name: string) =>
+  call<MidiDevice[]>("midi_device_forget", { name });
+export const midiPadPreset = (preset: PadPreset, first: number, count: number) =>
+  call<PadRoute[]>("midi_pad_preset", { preset, first, count });
+/** Starts recording what is played on the armed MIDI lane. */
+export const midiRecordStart = (latencyMs: number) =>
+  call<void>("midi_record_start", { latencyMs });
+/** Stops recording: the messages, stamped with the timeline ms the player heard. */
+export const midiRecordStop = () =>
+  call<{ ms: number; status: number; d1: number; d2: number }[]>("midi_record_stop");
+/** Plays the on-screen pads or the computer keyboard like a device (heard and recorded). */
+export const midiInject = (messages: MidiMessage[]) => call<void>("midi_inject", { messages });
+
+/** Subscribes to MIDI events. Resolves to an unsubscribe function. */
+export async function onMidiEvent<T>(
+  name: "midi://devices" | "midi://activity" | "midi://control",
+  handler: (payload: T) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<T>(name, (event) => handler(event.payload));
+}

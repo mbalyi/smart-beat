@@ -391,3 +391,24 @@
     transform: translateY(4px) scale(0.9);
   }
 }
+
+/* A MIDI activity light: lit by every note or control, fading out (ADR 0006). */
+@keyframes midi-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.midi-flash {
+  animation: midi-flash 300ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .midi-flash {
+    animation-duration: 600ms;
+    animation-timing-function: steps(1, end);
+  }
+}

@@ -261,6 +261,19 @@ export function mockTauri(overrides: Record<string, CommandHandler> = {}): IpcCa
       const override = overrides[cmd];
       if (override) return override(args);
       switch (cmd) {
+        // MIDI lanes and input (ADR 0006): no devices, nothing recorded.
+        case "midi_devices":
+        case "midi_device_update":
+        case "midi_device_forget":
+        case "midi_pad_preset":
+        case "midi_record_stop":
+          return [];
+        case "midi_record_start":
+        case "midi_inject":
+        case "audio_midi_live":
+        case "audio_midi_arm":
+        case "audio_midi_panic":
+          return null;
         case "app_info":
           return APP_INFO;
         case "menu_shortcuts":

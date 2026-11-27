@@ -956,6 +956,37 @@
       case "audio_midi_panic":
         window.__midiPanics = (window.__midiPanics ?? 0) + 1;
         return null;
+      // MIDI input: tests set `__midiDevices` and `__midiRecorded`, and read `__midiInjected`.
+      case "midi_devices":
+        return window.__midiDevices ?? [];
+      case "midi_device_update": {
+        const list = window.__midiDevices ?? [];
+        window.__midiDevices = list.map((d) =>
+          d.name === args.settings.name ? { ...d, settings: args.settings } : d,
+        );
+        return window.__midiDevices;
+      }
+      case "midi_device_forget":
+        window.__midiDevices = (window.__midiDevices ?? []).filter((d) => d.name !== args.name);
+        return window.__midiDevices;
+      case "midi_pad_preset":
+        return Array.from({ length: args.count }, (_, i) => ({
+          from: args.first + i,
+          to:
+            args.preset === "gmKit"
+              ? ([36, 38, 42, 46, 37, 39, 44, 49, 45, 47, 50, 51, 41, 43, 53, 55][i] ??
+                args.first + i)
+              : args.first + i,
+        }));
+      case "midi_record_start":
+        window.__midiRecording = true;
+        return null;
+      case "midi_record_stop":
+        window.__midiRecording = false;
+        return window.__midiRecorded ?? [];
+      case "midi_inject":
+        (window.__midiInjected ??= []).push(...args.messages);
+        return null;
       // Practice together sends the audio files of the lanes (src-tauri/src/audio/transfer.rs).
       // Tests put the bytes of a file this computer has in `__sourceBytes` (by id).
       case "audio_source_size": {

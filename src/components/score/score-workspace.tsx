@@ -22,7 +22,12 @@ import { soundFontCounterId, track as trackUsage } from "@/lib/telemetry";
 
 import { LaneDropHighlight } from "@/components/audio-lanes/lane-drop-highlight";
 import { LaneEditorDock, type LaneEditorActions } from "@/components/audio-lanes/lane-editor-dock";
+import { MidiArmedBar } from "@/components/midi/midi-armed-bar";
 import { MidiEditor } from "@/components/midi/midi-editor";
+import { PadBoardDialog } from "@/components/midi/pad-board-dialog";
+import { useMidiLaneInput } from "@/components/midi/use-midi-lane-input";
+import { useMidiRecord } from "@/components/midi/use-midi-record";
+import { writeMidiClipToTab } from "@/components/midi/write-to-tab";
 import { RecordAudioDialog } from "@/components/audio-lanes/record-audio-dialog";
 import { ScoreLanesBand } from "@/components/audio-lanes/score-lanes-band";
 import { StudioView } from "@/components/audio-lanes/studio-view";
@@ -35,6 +40,7 @@ import { LaneRecordContext } from "@/components/audio-lanes/lane-record-context"
 import { useLaneRecord } from "@/components/audio-lanes/use-lane-record";
 import { encodeWav } from "@/lib/export/wav";
 import { addSource, updateClip, updateLane } from "@/lib/audio-lanes/edits";
+import { knobValue } from "@/lib/midi/controls";
 import { hasBandRows } from "@/lib/audio-lanes/band-rows";
 import { laneDropTarget, type LaneDropTarget } from "@/lib/audio-lanes/drop-target";
 import { EMPTY_AUDIO, MAX_LANES, lanesOf } from "@/lib/audio-lanes/model";
@@ -2518,14 +2524,46 @@ export function ScoreWorkspace({
     (live: LiveInput | null) => playerRef.current?.setLiveInput(live),
     [],
   );
+  // Recording on a MIDI lane (ADR 0006): the same record icon, keys and armed lane.
+  const isMidiLaneId = (id: string | null) =>
+    !!id && lanesAudioRef.current.lanes.some((l) => l.id === id && l.kind === "midi");
+  const writeMidiToTab = (laneId: string, clipId: string) =>
+    writeMidiClipToTab({
+      audio: lanesAudioRef.current,
+      grid: laneGrid,
+      laneId,
+      clipId,
+      barCount: score.masterBars.length,
+      place: laneToTab.place,
+    });
+  const midiRecord = useMidiRecord({
+    lanes,
+    grid: laneGrid,
+    transport: () => playerRef.current,
+    startBar: () => Math.max(0, Math.floor(playhead.get())),
+    range: () => selectedBars(),
+    ensureEngine: ensureRecordingEngine,
+    writeToTab: writeMidiToTab,
+  });
   const laneRecord = useLaneRecord({
     lanes: lanes.audio.lanes,
-    recording: recordAudio.phase.kind === "recording",
-    recordingLaneId: recordAudio.laneId,
-    start: recordAudio.start,
-    stop: recordAudio.stop,
-    discard: recordAudio.discard,
-    setLiveInput,
+    recording: recordAudio.phase.kind === "recording" || midiRecord.recording !== null,
+    recordingLaneId: recordAudio.laneId ?? midiRecord.recording,
+    start: (setup) =>
+      void (isMidiLaneId(setup.laneId)
+        ? midiRecord.start(setup.laneId!)
+        : recordAudio.start(setup)),
+    stop: () => void (midiRecord.recording ? midiRecord.stop() : recordAudio.stop()),
+    discard: () => void (midiRecord.recording ? midiRecord.discard() : recordAudio.discard()),
+    // A MIDI lane hears its own notes, not the audio input.
+    setLiveInput: (live) =>
+      setLiveInput(
+        live && isMidiLaneId(live.hearLane)
+          ? live.silentLane
+            ? { ...live, hearLane: null }
+            : null
+          : live,
+      ),
     engineOn,
     ensureEngine: ensureRecordingEngine,
     inputName: audioInput?.label ?? null,
@@ -2534,6 +2572,51 @@ export function ScoreWorkspace({
     beforeTake.current = laneRecord.beforeTake;
   });
   const armedLane = lanes.audio.lanes.find((l) => l.id === laneRecord.armedId);
+  const armedMidiLane = armedLane?.kind === "midi" ? armedLane : null;
+  const [padBoardLaneId, setPadBoardLaneId] = useState<string | null | undefined>(undefined);
+  const midiInput = useMidiLaneInput({
+    armedLaneId: armedMidiLane?.id ?? null,
+    engineOn,
+    ensureEngine: ensureRecordingEngine,
+    onControl: (event) => {
+      const player = playerRef.current;
+      switch (event.action) {
+        case "playPause":
+          playPause();
+          return;
+        case "stop":
+          player?.pause();
+          return;
+        case "record":
+          if (laneRecord.armedId) laneRecord.controls.toggle(laneRecord.armedId);
+          return;
+        case "metronome":
+          dispatchPractice({ type: "metronome", value: !metronome });
+          return;
+        case "loop":
+          dispatchPractice({ type: "loop", value: !loop });
+          return;
+        case "speed":
+          dispatchPractice({
+            type: "speed",
+            value: Math.round(knobValue(speed, event, 25, 150)),
+          });
+          return;
+        case "masterVolume":
+          changeMix({ type: "master", value: knobValue(mix.master, event, 0, 1) });
+          return;
+        case "laneVolume":
+        case "lanePan": {
+          const lane = armedLane;
+          if (!lane) return;
+          const key = event.action === "laneVolume" ? "volume" : "pan";
+          const value = knobValue(lane[key], event, key === "pan" ? -1 : 0, 1);
+          lanes.applyQuiet((a) => updateLane(a, lane.id, { [key]: value }));
+          return;
+        }
+      }
+    },
+  });
   const armedInput = describeLiveInput({
     hear: laneRecord.hear,
     engineOn,
@@ -3758,6 +3841,8 @@ export function ScoreWorkspace({
                   if (editing) focusScore();
                 }}
                 onDrum={(sound) => {
+                  // With a MIDI lane armed the pads play (and record) on it instead.
+                  if (armedMidiLane) return midiInput.hitDrum(sound);
                   editor.enterDrum(sound);
                   if (editing) focusScore();
                 }}
@@ -3767,7 +3852,9 @@ export function ScoreWorkspace({
                   editor.replaceDrum(sound);
                   focusScore();
                 }}
-                onPreviewDrum={(sound) => playerRef.current?.previewDrum(sound)}
+                onPreviewDrum={(sound) => {
+                  if (!armedMidiLane) playerRef.current?.previewDrum(sound);
+                }}
                 scale={scale}
                 defaultScaleRoot={keyTonic(
                   keyBar?.keySignature ?? 0,
@@ -3945,6 +4032,8 @@ export function ScoreWorkspace({
             playhead={playhead}
             onClose={() => setEditorLaneId(null)}
             onEffects={(laneIndex) => openPedalboard({ lane: laneIndex })}
+            onEditPads={() => setPadBoardLaneId(editorLane.id)}
+            onWriteTab={(clipId) => writeMidiToTab(editorLane.id, clipId)}
           />
         )}
         {editorLane && !studioOpen && editorLane.kind !== "midi" && (
@@ -4004,7 +4093,35 @@ export function ScoreWorkspace({
           onCancel={recordAudio.discard}
           discardOnEscape
         />
-        {armedLane && recordAudio.phase.kind === "idle" && (
+        {armedMidiLane && recordAudio.phase.kind === "idle" && (
+          <MidiArmedBar
+            laneName={armedMidiLane.name}
+            recording={midiRecord.recording !== null}
+            onRecord={laneRecord.record}
+            onStop={() => void midiRecord.stop()}
+            onCancel={() => void midiRecord.discard()}
+            onDisarm={laneRecord.disarm}
+            onPadBoard={() => setPadBoardLaneId(armedMidiLane.id)}
+            onSettings={() => onOpenSettings?.(document.body)}
+          />
+        )}
+        <PadBoardDialog
+          open={padBoardLaneId !== undefined}
+          onOpenChange={(open) => !open && setPadBoardLaneId(undefined)}
+          lane={lanes.audio.lanes.find((l) => l.id === padBoardLaneId) ?? null}
+          onSave={(pads, sources) => {
+            const id = padBoardLaneId;
+            if (!id) return;
+            lanes.apply((a) =>
+              updateLane(
+                sources.reduce((next, source) => addSource(next, source), a),
+                id,
+                { instrument: { type: "pads", pads } },
+              ),
+            );
+          }}
+        />
+        {armedLane && !armedMidiLane && recordAudio.phase.kind === "idle" && (
           <ArmedLaneBar
             laneName={armedLane.name}
             inputText={armedInput.text}
